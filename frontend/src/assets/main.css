@@ -1,0 +1,105 @@
+:root {
+  --bg: #f2f2f4;
+  --map-bg: #dfe4e8;
+  --surface: #ffffff;
+  --surface-2: #f2f2f4;
+  --text: #0b0b0c;
+  --text-2: #7a7a80;
+  --line: #e6e6ea;
+  --green: #1f9d55;
+  --danger: #c0392b;
+  --danger-bg: #fdf6f5;
+  --danger-line: #f3d9d5;
+  --plane: #0b0b0c;
+  --plane-selected: #1f6feb;
+  --plane-ground: #9a9aa0;
+  --shadow: 0 8px 30px rgba(0, 0, 0, 0.12);
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  overflow: hidden; /* el mapa ocupa toda la pantalla: nunca hay scroll de página */
+}
+
+#app {
+  height: 100vh; /* respaldo para navegadores sin dvh */
+  height: 100dvh; /* dvh descuenta las barras del navegador móvil */
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: -apple-system, BlinkMacSystemFont, 'SF Pro Text', 'Segoe UI', Roboto, sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Tarjeta blanca de esquinas grandes (estilo hoja de Flighty) */
+.sheet {
+  background: var(--surface);
+  border-radius: 24px;
+  box-shadow: var(--shadow);
+}
+
+/* Marcadores de Leaflet: viven fuera de los componentes, por eso son estilos globales */
+/* El marcador mide 40x40 (área de toque cómoda) aunque el avión dibujado sea de 22 px */
+.plane-marker {
+  background: none;
+  border: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.plane-marker .plane {
+  width: 22px;
+  height: 22px;
+  transition: transform 0.4s ease;
+}
+.plane-marker svg {
+  width: 100%;
+  height: 100%;
+  fill: var(--plane);
+  stroke: #fff;
+  stroke-width: 1.2;
+  paint-order: stroke;
+  cursor: pointer;
+}
+.plane-marker.is-ground svg {
+  fill: var(--plane-ground);
+}
+.plane-marker.is-selected {
+  z-index: 10000 !important;
+}
+.plane-marker.is-selected .plane {
+  width: 30px;
+  height: 30px;
+}
+.plane-marker.is-selected svg {
+  fill: var(--plane-selected);
+  filter: drop-shadow(0 0 6px rgba(31, 111, 235, 0.6));
+}
+
+.leaflet-container {
+  font-family: inherit;
+}
+
+/* Botones de zoom de 44 px para dedos */
+.leaflet-touch .leaflet-bar a,
+.leaflet-bar a {
+  width: 44px;
+  height: 44px;
+  line-height: 44px;
+  font-size: 22px;
+}
+.leaflet-bar {
+  border-radius: 14px !important;
+  overflow: hidden;
+  box-shadow: var(--shadow) !important;
+  border: 0 !important;
+}

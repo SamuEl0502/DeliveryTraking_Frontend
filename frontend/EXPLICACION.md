@@ -1,0 +1,60 @@
+# Explicación del frontend (Bloque 3: mapa con aviones)
+
+## 1. Qué hace cada archivo
+
+| Archivo | Qué hace |
+|---|---|
+| `index.html` | Única página HTML: tiene el `<div id="app">`, la etiqueta `viewport` para móvil y carga `src/main.ts`. |
+| `package.json` | Lista dependencias y scripts (`npm run dev`, `npm run build`, `npm run typecheck`). |
+| `vite.config.ts` | Configura Vite (servidor de desarrollo y empaquetador) con el plugin de Vue. |
+| `tsconfig.json` | TypeScript en modo estricto (`strict`, `noUncheckedIndexedAccess`, etc.). |
+| `.env.example` | Muestra la variable `VITE_API_URL` (URL del backend) sin secretos. |
+| `src/vite-env.d.ts` | Le dice a TypeScript qué variables de entorno existen. |
+| `src/main.ts` | Punto de entrada: crea la app, conecta Pinia y el router, carga CSS y monta en `#app`. |
+| `src/App.vue` | Componente raíz; solo muestra la vista actual con `<RouterView />`. |
+| `src/router/index.ts` | Rutas: `/` muestra el mapa; cualquier otra ruta redirige a `/`. |
+| `src/types/aircraft.ts` | Contrato de datos: `AircraftState` y la respuesta de `/api/aircraft`. Igual que en el backend. |
+| `src/services/api.ts` | Axios con `baseURL` desde `.env`, interceptor que convierte errores en mensajes claros y `fetchAircraft()`. |
+| `src/store/aircraft.ts` | Tienda Pinia: aviones (por `icao24`), `loading`, `error`, `lastUpdated`, `selectedIcao24`. |
+| `src/composables/usePolling.ts` | Repite una tarea cada 10 s y se pausa cuando la pestaña está oculta. |
+| `src/views/MapView.vue` | Pantalla principal: une mapa, resumen, carga, banner de error y panel; arranca el polling. |
+| `src/components/AircraftMap.vue` | Mapa Leaflet: dibuja solo aviones en el aire y visibles (máx. 400) y reutiliza marcadores. |
+| `src/components/AircraftPanel.vue` | Panel del avión seguido: callsign, velocidad, altitud, aire/tierra y hora. Lateral en escritorio, hoja inferior en móvil. |
+| `src/assets/main.css` | Colores (variables), tarjeta `.sheet` estilo Flighty, estilos de los marcadores y altura `100dvh`. |
+
+## 2. Cómo llega un avión desde el backend hasta el mapa
+
+1. **Polling:** al abrir `MapView`, `usePolling` llama a `store.loadAircraft()` y la repite 10 s después de que termine cada respuesta.
+2. **Petición:** la tienda llama a `fetchAircraft()` en `services/api.ts`, que hace `GET http://localhost:3000/api/aircraft` con Axios.
+3. **Respuesta tipada:** Axios devuelve `{ time, count, aircraft }` con el tipo `AircraftListResponse`. Si falla, el interceptor lo convierte en `ApiError` con un mensaje en español.
+4. **Tienda:** Pinia guarda los aviones en un `Map` por `icao24` (normalizado), actualiza `lastUpdated` y limpia `error`. Si hubo error, guarda el mensaje y **conserva los datos anteriores**.
+5. **Filtro:** el getter `airborne` deja solo los aviones con `onGround = false`.
+6. **Reacción:** `AircraftMap` vigila (`watch`) los datos. Cuando cambian, toma los aviones en el aire que están dentro de la zona visible del mapa, hasta 400.
+7. **Marcadores:** si el avión ya tenía marcador, solo lo mueve (`setLatLng`) y lo gira según su rumbo. Si es nuevo, lo crea. Los que salieron de la vista se quitan.
+8. **Clic:** al tocar un avión, `store.select(icao24)` lo marca como seguido y aparece `AircraftPanel` con sus datos. La X o un clic en zona vacía lo cierran.
+
+## 3. Preguntas probables del profesor
+
+1. **¿Por qué no dibujas los 4400 aviones?**
+   Porque miles de elementos en el DOM vuelven lento el mapa. Solo dibujo los que están en el aire y en pantalla, con tope de 400. El avión seguido se dibuja siempre.
+
+2. **¿Cómo evitas borrar y recrear todos los marcadores cada 10 s?**
+   Guardo los marcadores en un `Map` por `icao24`. En cada ciclo muevo los existentes, creo solo los nuevos y quito los que ya no se ven.
+
+3. **¿Por qué `shallowRef` en la tienda?**
+   Con `ref` normal, Vue convertiría en reactivos los miles de objetos (lento). Con `shallowRef` solo reacciona cuando reemplazo el `Map` completo, una vez por ciclo.
+
+4. **¿Por qué `setTimeout` encadenado y no `setInterval`?**
+   Así la siguiente petición sale cuando termina la anterior. Si el servidor tarda, no se acumulan peticiones. Además se pausa con la pestaña oculta para no gastar red ni cupo de OpenSky.
+
+5. **¿Qué pasa si se apaga el backend?**
+   El interceptor convierte el fallo en `ApiError("No se pudo conectar con el servidor")`. La tienda guarda el mensaje, aparece un banner rojo con "Reintentar" y el mapa sigue mostrando los últimos datos.
+
+6. **¿Dónde está la URL del backend y por qué no está fija en el código?**
+   En `VITE_API_URL` dentro de `.env`. Así cambia por entorno (local, producción) sin tocar el código. `.env` no se sube a Git; `.env.example` sí.
+
+7. **¿Cómo garantizas TypeScript estricto sin `any`?**
+   `tsconfig` con `strict` y `noUncheckedIndexedAccess`. Las respuestas de Axios se tipan con `api.get<AircraftListResponse>` y los errores se capturan como `unknown`. `npm run typecheck` revisa todo, incluidos los `.vue`.
+
+8. **¿Cómo es responsive?**
+   Mobile-first con corte en 768 px. El mapa usa `100dvh` (descuenta las barras del navegador móvil). El panel es hoja inferior en móvil y lateral en escritorio. Cada avión tiene un área de toque de 40 px y los botones miden al menos 44 px.

@@ -64,3 +64,8 @@ frontend/
 - Envíos: lista del cliente, detalle e historial de eventos del paquete.
 - WebSocket por vuelo en lugar del polling.
 - ETA dinámico del envío en el mapa.
+
+- ```text
+Fecha de actualización: Octubre 2026
+Estado del módulo: Fase 1 (Completado y Operativo)
+Entorno de ejecución: Node.js (LTS) + Express 5 + TypeScript

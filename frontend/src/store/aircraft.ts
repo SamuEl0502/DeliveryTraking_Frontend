@@ -26,6 +26,10 @@ export const useAircraftStore = defineStore('aircraft', () => {
       const { aircraft } = await fetchAircraft();
       const next = new Map<string, AircraftState>();
       for (const a of aircraft) next.set(a.icao24, a);
+      // Si el avión seguido no vino en este lote, se conserva su último estado conocido
+      const followed = selectedIcao24.value;
+      const previous = followed ? byIcao.value.get(followed) : undefined;
+      if (followed && previous && !next.has(followed)) next.set(followed, previous);
       byIcao.value = next;
       lastUpdated.value = Date.now();
       error.value = null;

@@ -1,10 +1,13 @@
 <script setup lang="ts">
 import * as L from 'leaflet';
 import { onMounted, onUnmounted, ref, watch } from 'vue';
+import { extrapolate, isSignalLost, useSmoothedPosition } from '../composables/useSmoothedPosition';
 import { useAircraftStore } from '../store/aircraft';
 import type { AircraftState } from '../types/aircraft';
 
 const MAX_MARKERS = 400;
+const MAX_ANIMATED = 60; // además del avión seguido
+const STALE_CHECK_MS = 5000;
 const US_CENTER: L.LatLngTuple = [39.5, -98.35];
 
 const emit = defineEmits<{ rendered: [count: number] }>();
@@ -15,7 +18,11 @@ const mapEl = ref<HTMLDivElement | null>(null);
 // Instancias de Leaflet fuera de la reactividad de Vue (no necesitan proxies y serían más lentas)
 let map: L.Map | null = null;
 let layer: L.LayerGroup | null = null;
+let staleTimer: ReturnType<typeof setInterval> | null = null;
 const markers = new Map<string, L.Marker>();
+
+// Cada fotograma, el composable entrega la posición suavizada y aquí se mueve el marcador
+const smooth = useSmoothedPosition((id, pos) => markers.get(id)?.setLatLng([pos.lat, pos.lng]));
 
 // Un único icono compartido: avión SVG apuntando al norte; se rota con CSS según el rumbo
 const planeIcon = L.divIcon({
@@ -25,49 +32,69 @@ const planeIcon = L.divIcon({
   iconAnchor: [20, 20],
 });
 
-function applyState(marker: L.Marker, a: AircraftState, isSelected: boolean): void {
+function applyState(marker: L.Marker, a: AircraftState, isSelected: boolean, lost: boolean): void {
   const el = marker.getElement();
   if (!el) return;
   const plane = el.firstElementChild;
   if (plane instanceof HTMLElement) plane.style.transform = `rotate(${a.hdg ?? 0}deg)`;
   el.classList.toggle('is-selected', isSelected);
   el.classList.toggle('is-ground', a.onGround);
+  el.classList.toggle('is-stale', lost);
+}
+
+/** Solo vale la pena animar lo que se mueve y tiene señal reciente */
+function canAnimate(a: AircraftState, now: number): boolean {
+  return !a.onGround && a.spd !== null && a.hdg !== null && !isSignalLost(a, now);
 }
 
 /** Elige qué aviones dibujar y sincroniza los marcadores (crea, mueve o quita) */
 function render(): void {
   if (!map || !layer) return;
+  const now = Date.now();
   const bounds = map.getBounds().pad(0.05);
   const selectedId = store.selectedIcao24;
 
   const visible: AircraftState[] = [];
+  // El avión seguido va primero y se dibuja siempre, aunque esté en tierra o fuera de la vista
+  if (store.selected) visible.push(store.selected);
   for (const a of store.airborne) {
     if (visible.length >= MAX_MARKERS) break;
     if (a.icao24 !== selectedId && bounds.contains([a.lat, a.lng])) visible.push(a);
   }
-  // El avión seguido se dibuja siempre, aunque esté en tierra o fuera de la vista
-  if (store.selected) visible.push(store.selected);
 
   const keep = new Set<string>();
+  let animated = 0;
   for (const a of visible) {
-    keep.add(a.icao24);
-    let marker = markers.get(a.icao24);
-    if (marker) {
-      marker.setLatLng([a.lat, a.lng]);
-    } else {
-      const id = a.icao24;
-      marker = L.marker([a.lat, a.lng], { icon: planeIcon, keyboard: false });
+    const id = a.icao24;
+    const isSelected = id === selectedId;
+    keep.add(id);
+
+    let marker = markers.get(id);
+    if (!marker) {
+      const start = extrapolate(a, now);
+      marker = L.marker([start.lat, start.lng], { icon: planeIcon, keyboard: false });
       marker.on('click', () => store.select(id));
       marker.addTo(layer);
       markers.set(id, marker);
     }
-    applyState(marker, a, a.icao24 === selectedId);
+
+    // El seguido siempre pasa por el composable (así también se suaviza su corrección)
+    if (isSelected || (animated < MAX_ANIMATED && canAnimate(a, now))) {
+      if (!isSelected) animated += 1;
+      smooth.setState(a, marker.getLatLng());
+    } else {
+      smooth.remove(id);
+      const pos = extrapolate(a, now); // sin animación: un solo cálculo por render
+      marker.setLatLng([pos.lat, pos.lng]);
+    }
+    applyState(marker, a, isSelected, isSignalLost(a, now));
   }
 
   for (const [id, marker] of markers) {
     if (!keep.has(id)) {
       layer.removeLayer(marker);
       markers.delete(id);
+      smooth.remove(id);
     }
   }
 
@@ -86,6 +113,8 @@ onMounted(() => {
 
   map.on('moveend', render); // también se dispara al hacer zoom
   map.on('click', () => store.clearSelection()); // clic en zona vacía deja de seguir
+  // La "señal perdida" depende del reloj, no solo de datos nuevos: se revisa cada 5 s
+  staleTimer = setInterval(render, STALE_CHECK_MS);
   render();
 });
 
@@ -93,6 +122,7 @@ watch(() => store.byIcao, render);
 watch(() => store.selectedIcao24, render);
 
 onUnmounted(() => {
+  if (staleTimer !== null) clearInterval(staleTimer);
   map?.remove();
   map = null;
   layer = null;

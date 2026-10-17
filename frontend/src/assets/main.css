@@ -8,6 +8,7 @@
   --line: #e6e6ea;
   --green: #1f9d55;
   --danger: #c0392b;
+  --warning: #b26a00;
   --danger-bg: #fdf6f5;
   --danger-line: #f3d9d5;
   --plane: #0b0b0c;
@@ -83,6 +84,11 @@ body {
 .plane-marker.is-selected svg {
   fill: var(--plane-selected);
   filter: drop-shadow(0 0 6px rgba(31, 111, 235, 0.6));
+}
+/* Señal perdida (> 2 min sin datos): avión atenuado y sin extrapolar */
+.plane-marker.is-stale svg {
+  opacity: 0.4;
+  filter: grayscale(1);
 }
 
 .leaflet-container {

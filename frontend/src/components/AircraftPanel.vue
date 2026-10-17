@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { SIGNAL_LOST_S } from '../composables/useSmoothedPosition';
 import type { AircraftState } from '../types/aircraft';
 
 const props = defineProps<{ aircraft: AircraftState }>();
@@ -33,6 +34,9 @@ const ageText = computed(() =>
   ageSeconds.value < 60 ? `hace ${ageSeconds.value} s` : `hace ${Math.floor(ageSeconds.value / 60)} min`,
 );
 
+const signalLost = computed(() => ageSeconds.value > SIGNAL_LOST_S);
+const lostMinutes = computed(() => Math.floor(ageSeconds.value / 60));
+
 const num = new Intl.NumberFormat('es');
 </script>
 
@@ -49,7 +53,11 @@ const num = new Intl.NumberFormat('es');
     </header>
 
     <h2 class="callsign">{{ callsign }}</h2>
-    <p class="status" :class="aircraft.onGround ? 'is-ground' : 'is-air'">
+    <p v-if="signalLost" class="status is-lost" role="status">
+      <span class="dot" />
+      Señal perdida hace {{ lostMinutes }} min
+    </p>
+    <p v-else class="status" :class="aircraft.onGround ? 'is-ground' : 'is-air'">
       <span class="dot" />
       {{ aircraft.onGround ? 'En tierra' : 'En el aire' }}
     </p>
@@ -176,6 +184,9 @@ const num = new Intl.NumberFormat('es');
 }
 .is-ground {
   color: var(--text-2);
+}
+.is-lost {
+  color: var(--warning);
 }
 .stats {
   display: grid;

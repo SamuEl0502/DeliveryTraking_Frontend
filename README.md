@@ -1,6 +1,6 @@
-# Delivery Tracking · Frontend
+# Delivery Tracking con tracking geoespacial en vivo (WebSockets, suavizado de trayectoria en el frontend y recálculo dinámico de ETA)
 
-Rastreo de paquetes enviados en vuelos dentro de EE. UU., con la posición del avión en vivo (OpenSky Network) sobre un mapa.
+Sistema robusto de **rastreo geoespacial en tiempo real de paquetes y envíos aéreos**, desarrollado con un backend en Node.js y TypeScript. Conecta la telemetría en vivo de aeronaves sobre el espacio aéreo de EE. UU. (vía **OpenSky Network**) con una arquitectura modular por capas, caché de baja latencia y observabilidad completa.
 
 ## Stack
 

@@ -1,9 +1,9 @@
 <script setup lang="ts">
 import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue';
 import { SIGNAL_LOST_S } from '../composables/useSmoothedPosition';
-import { ApiError, fetchAircraftDetails } from '../services/api';
+import { ApiError, fetchAircraftDetails, fetchAircraftSchedule } from '../services/api';
 import type { AircraftState } from '../types/aircraft';
-import type { AircraftDetails, Airport } from '../types/flightDetails';
+import type { AircraftDetails, Airport, FlightSchedule } from '../types/flightDetails';
 
 const props = defineProps<{ aircraft: AircraftState }>();
 const emit = defineEmits<{ close: [] }>();
@@ -24,11 +24,65 @@ const details = shallowRef<AircraftDetails | null>(null);
 const detailsLoading = ref(false);
 const detailsError = ref<string | null>(null);
 
+// Horarios: SOLO con el botón. Cada llamada real gasta cupo pagado de AeroDataBox
+const schedule = shallowRef<FlightSchedule | null>(null);
+const scheduleLoading = ref(false);
+const scheduleError = ref<string | null>(null);
+let scheduleController: AbortController | null = null;
+
+function resetSchedule(): void {
+  scheduleController?.abort();
+  scheduleController = null;
+  schedule.value = null;
+  scheduleError.value = null;
+  scheduleLoading.value = false;
+}
+
+async function loadSchedule(): Promise<void> {
+  resetSchedule();
+  const controller = (scheduleController = new AbortController());
+  scheduleLoading.value = true;
+  try {
+    schedule.value = await fetchAircraftSchedule(props.aircraft.icao24, controller.signal);
+  } catch (e: unknown) {
+    if (controller.signal.aborted) return;
+    const code = e instanceof ApiError ? e.code : null;
+    scheduleError.value =
+      code === 'SCHEDULE_NOT_FOUND'
+        ? 'Sin horarios para este vuelo'
+        : 'Horarios no disponibles por ahora'; // cupo agotado, servicio apagado o cualquier otro fallo
+  } finally {
+    if (!controller.signal.aborted) scheduleLoading.value = false;
+  }
+}
+
+const STATUS_ES: Record<string, string> = {
+  Expected: 'Previsto',
+  EnRoute: 'En ruta',
+  Departed: 'Despegó',
+  Landed: 'Aterrizó',
+  Arrived: 'Llegó',
+  Delayed: 'Retrasado',
+  Canceled: 'Cancelado',
+  Diverted: 'Desviado',
+  Boarding: 'Embarcando',
+  Unknown: 'Desconocido',
+};
+const scheduleStatus = computed(() =>
+  schedule.value ? (STATUS_ES[schedule.value.status] ?? schedule.value.status) : null,
+);
+// Las horas llegan en UTC; se muestran en la hora local de quien mira
+const clockFmt = new Intl.DateTimeFormat('es', { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' });
+const atTime = (iso: string | null) => (iso ? clockFmt.format(new Date(iso)) : '—');
+
 watch(
   () => props.aircraft.icao24,
   (icao24, _old, onCleanup) => {
     const controller = new AbortController();
-    onCleanup(() => controller.abort());
+    onCleanup(() => {
+      controller.abort();
+      resetSchedule();
+    });
     details.value = null;
     detailsError.value = null;
     detailsLoading.value = true;
@@ -164,6 +218,38 @@ const num = new Intl.NumberFormat('es');
             <span v-if="info.owner"> · {{ info.owner }}</span>
           </p>
         </div>
+      </section>
+
+      <section v-if="route" class="schedule" aria-label="Horarios">
+        <button
+          v-if="!schedule && !scheduleError"
+          type="button"
+          class="schedule-btn"
+          :disabled="scheduleLoading"
+          @click="loadSchedule()"
+        >
+          {{ scheduleLoading ? 'Cargando horarios…' : 'Ver horarios' }}
+        </button>
+        <p v-else-if="scheduleError" class="note is-warn" role="status">{{ scheduleError }}</p>
+        <template v-else-if="schedule">
+          <p class="schedule-status">{{ scheduleStatus }}</p>
+          <div class="times">
+            <div v-for="leg in [
+              { label: 'Salida', t: schedule.departure },
+              { label: 'Llegada', t: schedule.arrival },
+            ]" :key="leg.label">
+              <p class="leg">{{ leg.label }} <span v-if="leg.t.airportIcao" class="mono">{{ leg.t.airportIcao }}</span></p>
+              <p class="time">{{ atTime(leg.t.revised ?? leg.t.scheduled) }}</p>
+              <p v-if="leg.t.revised && leg.t.scheduled && leg.t.revised !== leg.t.scheduled" class="sub">
+                Programada {{ atTime(leg.t.scheduled) }}
+              </p>
+              <p class="sub">
+                Terminal {{ leg.t.terminal ?? '—' }} · Puerta {{ leg.t.gate ?? '—' }}
+              </p>
+            </div>
+          </div>
+        </template>
+        <p class="source">Horarios: AeroDataBox</p>
       </section>
     </template>
 
@@ -364,6 +450,53 @@ const num = new Intl.NumberFormat('es');
 .reg {
   margin: 2px 0 0;
   font-size: 13px;
+  color: var(--text-2);
+}
+.schedule {
+  margin: 0 0 16px;
+}
+.schedule-btn {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.schedule-btn:hover {
+  background: var(--line);
+}
+.schedule-btn:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+.schedule-status {
+  margin: 0 0 8px;
+  font-weight: 700;
+}
+.times {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.times p {
+  margin: 0;
+}
+.leg {
+  font-size: 13px;
+  color: var(--text-2);
+}
+.time {
+  font-size: 20px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.source {
+  margin: 8px 0 0;
+  font-size: 12px;
   color: var(--text-2);
 }
 .status {

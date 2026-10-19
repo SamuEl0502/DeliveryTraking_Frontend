@@ -32,6 +32,16 @@ npm run preview     # sirve el build localmente
 
 - `VITE_API_URL`: URL base del backend (si falta, se usa `http://localhost:3000`).
 
+## Contrato con el backend
+
+Los tipos de `src/types/aircraft.ts` son los mismos de `backend/types/aircraft.ts`. Se compararon campo por campo el 19 de octubre de 2026.
+
+- `GET /api/aircraft` → `{ time, count, aircraft: AircraftState[] }`.
+- `GET /api/aircraft/:icao24` → un `AircraftState` suelto. El `icao24` son 6 caracteres hexadecimales.
+- Unidades: `spd` en m/s, `alt` en metros, `hdg` en grados desde el norte (sentido horario), `ts` y `time` en segundos Unix.
+- `lat` y `lng` nunca son `null` porque el backend descarta los aviones sin posición. `callsign` llega sin espacios, o `null` si queda vacío. `ts` puede valer `0` si OpenSky no manda ninguna hora.
+- Errores: `{ error: { code, message, correlationId } }`. Códigos: 400 `VALIDATION_ERROR`, 404 `AIRCRAFT_NOT_FOUND`, 429 rate limiter, 502 `OPENSKY_UNAVAILABLE` / `OPENSKY_AUTH_FAILED` / `OPENSKY_BAD_RESPONSE`, 503 `OPENSKY_QUOTA_EXCEEDED`, 504 `OPENSKY_TIMEOUT`, 500 `FIXTURE_MISSING` / `INTERNAL_ERROR`.
+
 El archivo `.env` va dentro de `frontend/` (Vite solo lee los de esa carpeta) y nunca se sube a Git.
 
 ## Estructura
@@ -56,7 +66,8 @@ frontend/
 - Solo se dibujan los aviones en el aire y visibles (máx. 400), rotados según su rumbo.
 - Clic en un avión: panel con callsign, velocidad, altitud, estado y hora de la última posición.
 - Movimiento suave: extrapolación con velocidad y rumbo, más corrección con lerp; "señal perdida" tras 2 min sin datos.
-- Indicador de carga y banner de error con reintento si el backend no responde.
+- Indicador de carga y banner de error con reintento si el backend no responde. El banner muestra el `message` que manda el backend y su `correlationId` como "ref." para buscarlo en los logs. Si la respuesta no trae ese formato (por ejemplo, el 429 del rate limiter), muestra un mensaje genérico con el código HTTP.
+- Si OpenSky no manda la hora de un avión (`ts = 0`), el panel muestra "sin hora" y "Señal perdida", en vez de una fecha de 1970.
 - Diseño responsive (mobile-first, panel lateral en escritorio y hoja inferior en móvil).
 
 **Viene después**

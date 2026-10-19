@@ -518,6 +518,7 @@ const num = new Intl.NumberFormat('es');
   font-variant-numeric: tabular-nums;
 }
 .delay {
+  white-space: nowrap;
   font-size: 14px;
   color: var(--danger);
 }

@@ -30,7 +30,7 @@ api.interceptors.response.use(
         return Promise.reject(new ApiError('No se pudo conectar con el servidor', null));
       }
       const status = error.response.status;
-      // Formato del backend: { error: { code, message, correlationId } }; el 429 del rate limiter puede no traerlo
+      // Formato del backend: { error: { code, message, correlationId } }; si no viene, mensaje genérico
       const body = (error.response.data as { error?: { message?: string; correlationId?: string } } | undefined)?.error;
       const message = body?.message?.replace(/\.$/, '') ?? `El servidor respondió con error ${status}`;
       const ref = body?.correlationId ? ` (ref. ${body.correlationId})` : '';

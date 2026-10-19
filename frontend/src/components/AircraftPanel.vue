@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue';
 import { SIGNAL_LOST_S } from '../composables/useSmoothedPosition';
+import { ApiError, fetchAircraftDetails } from '../services/api';
 import type { AircraftState } from '../types/aircraft';
+import type { AircraftDetails, Airport } from '../types/flightDetails';
 
 const props = defineProps<{ aircraft: AircraftState }>();
 const emit = defineEmits<{ close: [] }>();
@@ -16,7 +18,51 @@ onUnmounted(() => {
 
 const timeFmt = new Intl.DateTimeFormat('es', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
-const callsign = computed(() => props.aircraft.callsign?.trim() || 'Sin callsign');
+// Ruta y avión: una petición por avión seleccionado, no por ciclo de polling (el backend
+// cachea 6 h). Al cambiar de avión o cerrar el panel se aborta la anterior para no mezclar datos.
+const details = shallowRef<AircraftDetails | null>(null);
+const detailsLoading = ref(false);
+const detailsError = ref<string | null>(null);
+
+watch(
+  () => props.aircraft.icao24,
+  (icao24, _old, onCleanup) => {
+    const controller = new AbortController();
+    onCleanup(() => controller.abort());
+    details.value = null;
+    detailsError.value = null;
+    detailsLoading.value = true;
+    fetchAircraftDetails(icao24, controller.signal)
+      .then((d) => {
+        if (!controller.signal.aborted) details.value = d;
+      })
+      .catch((e: unknown) => {
+        if (!controller.signal.aborted) detailsError.value = e instanceof ApiError ? e.message : 'Error inesperado';
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) detailsLoading.value = false;
+      });
+  },
+  { immediate: true },
+);
+
+const route = computed(() => details.value?.route ?? null);
+const progress = computed(() => details.value?.progress ?? null);
+const info = computed(() => details.value?.aircraft ?? null);
+
+const callsign = computed(
+  () => route.value?.flightNumber ?? (props.aircraft.callsign?.trim() || 'Sin callsign'),
+);
+const airportCode = (a: Airport) => a.iata ?? a.icao;
+const airportCity = (a: Airport) => a.city ?? a.name;
+
+const eta = computed(() => {
+  const m = progress.value?.etaMinutes;
+  if (m == null) return null;
+  const h = Math.floor(m / 60);
+  const min = Math.round(m % 60);
+  return h > 0 ? `${h} h ${min} min` : `${min} min`;
+});
 
 // OpenSky entrega m/s y metros; se muestran también nudos y pies (unidades de aviación)
 const speed = computed(() => {
@@ -55,6 +101,7 @@ const num = new Intl.NumberFormat('es');
     </header>
 
     <h2 class="callsign">{{ callsign }}</h2>
+    <p v-if="route?.airline" class="airline">{{ route.airline.name }}</p>
     <p v-if="signalLost" class="status is-lost" role="status">
       <span class="dot" />
       Señal perdida{{ hasTs ? ` hace ${lostMinutes} min` : '' }}
@@ -63,6 +110,62 @@ const num = new Intl.NumberFormat('es');
       <span class="dot" />
       {{ aircraft.onGround ? 'En tierra' : 'En el aire' }}
     </p>
+
+    <!-- Ruta y avión: si fallan, solo un aviso; los datos en vivo siguen abajo -->
+    <p v-if="detailsLoading" class="note">Cargando ruta…</p>
+    <p v-else-if="detailsError" class="note is-warn">No se pudo cargar la ruta. {{ detailsError }}</p>
+    <template v-else-if="details">
+      <section v-if="route" class="route" aria-label="Ruta">
+        <div class="airports">
+          <div>
+            <span class="iata mono">{{ airportCode(route.origin) }}</span>
+            <span class="city">{{ airportCity(route.origin) }}</span>
+          </div>
+          <span class="arrow" aria-hidden="true">→</span>
+          <div class="end">
+            <span class="iata mono">{{ airportCode(route.destination) }}</span>
+            <span class="city">{{ airportCity(route.destination) }}</span>
+          </div>
+        </div>
+        <p v-if="!route.verified" class="note is-warn">Ruta no verificada</p>
+        <div v-if="progress" class="progress">
+          <div
+            class="bar"
+            role="progressbar"
+            aria-label="Progreso del vuelo"
+            :aria-valuenow="Math.round(progress.percent)"
+            aria-valuemin="0"
+            aria-valuemax="100"
+          >
+            <span :style="{ width: `${Math.min(100, Math.max(0, progress.percent))}%` }" />
+          </div>
+          <p class="progress-km">
+            <span>{{ num.format(Math.round(progress.flownKm)) }} km recorridos</span>
+            <span>{{ num.format(Math.round(progress.remainingKm)) }} km restantes</span>
+          </p>
+          <p v-if="eta" class="eta">Llega en ~{{ eta }}</p>
+        </div>
+      </section>
+      <p v-else class="note">Ruta no disponible</p>
+
+      <section v-if="info" class="plane" aria-label="Avión">
+        <component
+          :is="info.photoUrl ? 'a' : 'div'"
+          v-if="info.photoThumbnailUrl"
+          class="photo"
+          v-bind="info.photoUrl ? { href: info.photoUrl, target: '_blank', rel: 'noopener' } : {}"
+        >
+          <img :src="info.photoThumbnailUrl" :alt="`Foto del avión ${info.registration ?? ''}`" loading="lazy" />
+        </component>
+        <div>
+          <p class="model">{{ info.model ?? info.icaoType ?? 'Modelo desconocido' }}</p>
+          <p class="reg">
+            <span v-if="info.registration" class="mono">{{ info.registration }}</span>
+            <span v-if="info.owner"> · {{ info.owner }}</span>
+          </p>
+        </div>
+      </section>
+    </template>
 
     <dl class="stats">
       <div>
@@ -166,6 +269,102 @@ const num = new Intl.NumberFormat('es');
   overflow-wrap: anywhere;
   font-weight: 800;
   letter-spacing: -0.02em;
+}
+.airline {
+  margin: 0 0 4px;
+  font-size: 15px;
+  color: var(--text-2);
+}
+.note {
+  margin: 0 0 14px;
+  font-size: 14px;
+  color: var(--text-2);
+}
+.note.is-warn {
+  color: var(--warning);
+}
+.route {
+  margin: 0 0 16px;
+}
+.airports {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.airports > div {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.airports .end {
+  text-align: right;
+}
+.iata {
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+.city {
+  font-size: 13px;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+.arrow {
+  font-size: 22px;
+  color: var(--text-2);
+}
+.bar {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--plane-selected);
+}
+.progress-km {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.eta {
+  margin: 6px 0 0;
+  font-weight: 700;
+}
+.plane {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 16px;
+}
+.photo {
+  flex: none;
+}
+.photo img {
+  display: block;
+  width: 96px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+.model {
+  margin: 0;
+  font-weight: 700;
+}
+.reg {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--text-2);
 }
 .status {
   display: inline-flex;

@@ -48,20 +48,27 @@ export interface AircraftDetails {
 }
 
 export interface FlightTimes {
-  airportIcao: string | null;
-  /** ISO 8601 UTC */
+  airport: { icao: string; iata: string | null; name: string } | null;
+  /** ISO 8601 UTC (el backend ya convierte desde la hora local del aeropuerto) */
   scheduled: string | null;
   /** ISO 8601 UTC */
-  revised: string | null;
+  estimated: string | null;
+  /** ISO 8601 UTC */
+  actual: string | null;
+  delayMinutes: number | null;
   terminal: string | null;
   gate: string | null;
 }
 
 export interface FlightSchedule {
   flightNumber: string;
-  /** Estado de AeroDataBox: Expected, EnRoute, Landed, Delayed, Canceled… */
+  airline: string | null;
+  /** scheduled | active | landed | cancelled | incident | diverted */
   status: string;
   departure: FlightTimes;
   arrival: FlightTimes;
-  source: 'AeroDataBox';
+  /** Ruta real del tramo activo; si llega, reemplaza a la de /details */
+  route: FlightRoute | null;
+  progress: FlightProgress | null;
+  source: 'Aviationstack';
 }

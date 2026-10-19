@@ -56,7 +56,7 @@ export async function fetchAircraftDetails(icao24: string, signal?: AbortSignal)
   return data;
 }
 
-/** Horarios de AeroDataBox. Solo a pedido del usuario: cada llamada real gasta cupo pagado */
+/** Horarios y ruta real de Aviationstack. Solo a pedido del usuario: el cupo es de 100 al mes */
 export async function fetchAircraftSchedule(icao24: string, signal?: AbortSignal): Promise<FlightSchedule> {
   const { data } = await api.get<FlightSchedule>(`/api/aircraft/${icao24}/schedule`, { signal });
   return data;

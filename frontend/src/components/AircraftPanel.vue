@@ -3,7 +3,7 @@ import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue';
 import { SIGNAL_LOST_S } from '../composables/useSmoothedPosition';
 import { ApiError, fetchAircraftDetails, fetchAircraftSchedule } from '../services/api';
 import type { AircraftState } from '../types/aircraft';
-import type { AircraftDetails, Airport, FlightSchedule } from '../types/flightDetails';
+import type { AircraftDetails, Airport, FlightSchedule, FlightTimes } from '../types/flightDetails';
 
 const props = defineProps<{ aircraft: AircraftState }>();
 const emit = defineEmits<{ close: [] }>();
@@ -24,7 +24,7 @@ const details = shallowRef<AircraftDetails | null>(null);
 const detailsLoading = ref(false);
 const detailsError = ref<string | null>(null);
 
-// Horarios: SOLO con el botón. Cada llamada real gasta cupo pagado de AeroDataBox
+// Horarios: SOLO con el botón. Aviationstack da 100 peticiones al mes
 const schedule = shallowRef<FlightSchedule | null>(null);
 const scheduleLoading = ref(false);
 const scheduleError = ref<string | null>(null);
@@ -49,7 +49,7 @@ async function loadSchedule(): Promise<void> {
     const code = e instanceof ApiError ? e.code : null;
     scheduleError.value =
       code === 'SCHEDULE_NOT_FOUND'
-        ? 'Sin horarios para este vuelo'
+        ? 'Sin vuelo activo para este indicativo'
         : 'Horarios no disponibles por ahora'; // cupo agotado, servicio apagado o cualquier otro fallo
   } finally {
     if (!controller.signal.aborted) scheduleLoading.value = false;
@@ -57,16 +57,12 @@ async function loadSchedule(): Promise<void> {
 }
 
 const STATUS_ES: Record<string, string> = {
-  Expected: 'Previsto',
-  EnRoute: 'En ruta',
-  Departed: 'Despegó',
-  Landed: 'Aterrizó',
-  Arrived: 'Llegó',
-  Delayed: 'Retrasado',
-  Canceled: 'Cancelado',
-  Diverted: 'Desviado',
-  Boarding: 'Embarcando',
-  Unknown: 'Desconocido',
+  scheduled: 'Programado',
+  active: 'En vuelo',
+  landed: 'Aterrizó',
+  cancelled: 'Cancelado',
+  incident: 'Incidente',
+  diverted: 'Desviado',
 };
 const scheduleStatus = computed(() =>
   schedule.value ? (STATUS_ES[schedule.value.status] ?? schedule.value.status) : null,
@@ -74,6 +70,14 @@ const scheduleStatus = computed(() =>
 // Las horas llegan en UTC; se muestran en la hora local de quien mira
 const clockFmt = new Intl.DateTimeFormat('es', { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' });
 const atTime = (iso: string | null) => (iso ? clockFmt.format(new Date(iso)) : '—');
+
+// Mejor hora disponible: real, si no estimada, si no programada
+function bestTime(t: FlightTimes): { label: string; iso: string } | null {
+  if (t.actual) return { label: 'Real', iso: t.actual };
+  if (t.estimated) return { label: 'Estimada', iso: t.estimated };
+  if (t.scheduled) return { label: 'Programada', iso: t.scheduled };
+  return null;
+}
 
 watch(
   () => props.aircraft.icao24,
@@ -100,13 +104,20 @@ watch(
   { immediate: true },
 );
 
-const route = computed(() => details.value?.route ?? null);
-const progress = computed(() => details.value?.progress ?? null);
+// La ruta de /schedule es la del tramo que vuela ahora: si llega, reemplaza a la de /details
+const route = computed(() => schedule.value?.route ?? details.value?.route ?? null);
+const progress = computed(() =>
+  schedule.value?.route ? schedule.value.progress : (details.value?.progress ?? null),
+);
 const info = computed(() => details.value?.aircraft ?? null);
 
 const callsign = computed(
-  () => route.value?.flightNumber ?? (props.aircraft.callsign?.trim() || 'Sin callsign'),
+  () =>
+    route.value?.flightNumber ??
+    schedule.value?.flightNumber ??
+    (props.aircraft.callsign?.trim() || 'Sin callsign'),
 );
+const airline = computed(() => route.value?.airline?.name ?? schedule.value?.airline ?? null);
 const airportCode = (a: Airport) => a.iata ?? a.icao;
 const airportCity = (a: Airport) => a.city ?? a.name;
 
@@ -155,7 +166,7 @@ const num = new Intl.NumberFormat('es');
     </header>
 
     <h2 class="callsign">{{ callsign }}</h2>
-    <p v-if="route?.airline" class="airline">{{ route.airline.name }}</p>
+    <p v-if="airline" class="airline">{{ airline }}</p>
     <p v-if="signalLost" class="status is-lost" role="status">
       <span class="dot" />
       Señal perdida{{ hasTs ? ` hace ${lostMinutes} min` : '' }}
@@ -167,8 +178,8 @@ const num = new Intl.NumberFormat('es');
 
     <!-- Ruta y avión: si fallan, solo un aviso; los datos en vivo siguen abajo -->
     <p v-if="detailsLoading" class="note">Cargando ruta…</p>
-    <p v-else-if="detailsError" class="note is-warn">No se pudo cargar la ruta. {{ detailsError }}</p>
-    <template v-else-if="details">
+    <template v-else>
+      <p v-if="detailsError && !route" class="note is-warn">No se pudo cargar la ruta. {{ detailsError }}</p>
       <section v-if="route" class="route" aria-label="Ruta">
         <div class="airports">
           <div>
@@ -200,7 +211,7 @@ const num = new Intl.NumberFormat('es');
           <p v-if="eta" class="eta">Llega en ~{{ eta }}</p>
         </div>
       </section>
-      <p v-else class="note">Ruta no disponible</p>
+      <p v-else-if="details" class="note">Ruta no disponible</p>
 
       <section v-if="info" class="plane" aria-label="Avión">
         <component
@@ -220,7 +231,8 @@ const num = new Intl.NumberFormat('es');
         </div>
       </section>
 
-      <section v-if="route" class="schedule" aria-label="Horarios">
+      <!-- Aviationstack busca por indicativo: el botón sale aunque /details no diera ruta -->
+      <section v-if="aircraft.callsign" class="schedule" aria-label="Horarios">
         <button
           v-if="!schedule && !scheduleError"
           type="button"
@@ -238,18 +250,29 @@ const num = new Intl.NumberFormat('es');
               { label: 'Salida', t: schedule.departure },
               { label: 'Llegada', t: schedule.arrival },
             ]" :key="leg.label">
-              <p class="leg">{{ leg.label }} <span v-if="leg.t.airportIcao" class="mono">{{ leg.t.airportIcao }}</span></p>
-              <p class="time">{{ atTime(leg.t.revised ?? leg.t.scheduled) }}</p>
-              <p v-if="leg.t.revised && leg.t.scheduled && leg.t.revised !== leg.t.scheduled" class="sub">
-                Programada {{ atTime(leg.t.scheduled) }}
+              <p class="leg">
+                {{ leg.label }}
+                <span v-if="leg.t.airport" class="mono">{{ leg.t.airport.iata ?? leg.t.airport.icao }}</span>
               </p>
+              <template v-for="best in [bestTime(leg.t)]" :key="leg.label">
+                <p class="time">
+                  {{ best ? atTime(best.iso) : '—' }}
+                  <span v-if="leg.t.delayMinutes && leg.t.delayMinutes > 0" class="delay">
+                    +{{ leg.t.delayMinutes }} min
+                  </span>
+                </p>
+                <p v-if="best" class="sub">{{ best.label }}</p>
+                <p v-if="best && best.label !== 'Programada' && leg.t.scheduled" class="sub">
+                  Programada {{ atTime(leg.t.scheduled) }}
+                </p>
+              </template>
               <p class="sub">
                 Terminal {{ leg.t.terminal ?? '—' }} · Puerta {{ leg.t.gate ?? '—' }}
               </p>
             </div>
           </div>
         </template>
-        <p class="source">Horarios: AeroDataBox</p>
+        <p class="source">Horarios: {{ schedule?.source ?? 'Aviationstack' }}</p>
       </section>
     </template>
 
@@ -493,6 +516,10 @@ const num = new Intl.NumberFormat('es');
   font-size: 20px;
   font-weight: 700;
   font-variant-numeric: tabular-nums;
+}
+.delay {
+  font-size: 14px;
+  color: var(--danger);
 }
 .source {
   margin: 8px 0 0;

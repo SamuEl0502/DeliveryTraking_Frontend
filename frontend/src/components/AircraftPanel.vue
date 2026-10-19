@@ -28,7 +28,9 @@ const altitude = computed(() => {
   return m === null ? null : { m: Math.round(m), ft: Math.round(m * 3.28084) };
 });
 
-const positionTime = computed(() => timeFmt.format(props.aircraft.ts * 1000));
+// ts = 0: OpenSky no mandó ninguna hora; no se muestra 1970
+const hasTs = computed(() => props.aircraft.ts > 0);
+const positionTime = computed(() => (hasTs.value ? timeFmt.format(props.aircraft.ts * 1000) : 'sin hora'));
 const ageSeconds = computed(() => Math.max(0, Math.round(now.value / 1000 - props.aircraft.ts)));
 const ageText = computed(() =>
   ageSeconds.value < 60 ? `hace ${ageSeconds.value} s` : `hace ${Math.floor(ageSeconds.value / 60)} min`,
@@ -55,7 +57,7 @@ const num = new Intl.NumberFormat('es');
     <h2 class="callsign">{{ callsign }}</h2>
     <p v-if="signalLost" class="status is-lost" role="status">
       <span class="dot" />
-      Señal perdida hace {{ lostMinutes }} min
+      Señal perdida{{ hasTs ? ` hace ${lostMinutes} min` : '' }}
     </p>
     <p v-else class="status" :class="aircraft.onGround ? 'is-ground' : 'is-air'">
       <span class="dot" />
@@ -86,7 +88,7 @@ const num = new Intl.NumberFormat('es');
       </div>
     </dl>
 
-    <p class="updated">Última posición a las <strong>{{ positionTime }}</strong> · {{ ageText }}</p>
+    <p class="updated">Última posición a las <strong>{{ positionTime }}</strong><template v-if="hasTs"> · {{ ageText }}</template></p>
   </aside>
 </template>
 

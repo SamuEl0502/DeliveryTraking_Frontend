@@ -1,7 +1,9 @@
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue';
+import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue';
 import { SIGNAL_LOST_S } from '../composables/useSmoothedPosition';
+import { ApiError, fetchAircraftDetails, fetchAircraftSchedule } from '../services/api';
 import type { AircraftState } from '../types/aircraft';
+import type { AircraftDetails, Airport, FlightSchedule, FlightTimes } from '../types/flightDetails';
 
 const props = defineProps<{ aircraft: AircraftState }>();
 const emit = defineEmits<{ close: [] }>();
@@ -16,7 +18,116 @@ onUnmounted(() => {
 
 const timeFmt = new Intl.DateTimeFormat('es', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
-const callsign = computed(() => props.aircraft.callsign?.trim() || 'Sin callsign');
+// Ruta y avión: una petición por avión seleccionado, no por ciclo de polling (el backend
+// cachea 6 h). Al cambiar de avión o cerrar el panel se aborta la anterior para no mezclar datos.
+const details = shallowRef<AircraftDetails | null>(null);
+const detailsLoading = ref(false);
+const detailsError = ref<string | null>(null);
+
+// Horarios: SOLO con el botón. Aviationstack da 100 peticiones al mes
+const schedule = shallowRef<FlightSchedule | null>(null);
+const scheduleLoading = ref(false);
+const scheduleError = ref<string | null>(null);
+let scheduleController: AbortController | null = null;
+
+function resetSchedule(): void {
+  scheduleController?.abort();
+  scheduleController = null;
+  schedule.value = null;
+  scheduleError.value = null;
+  scheduleLoading.value = false;
+}
+
+async function loadSchedule(): Promise<void> {
+  resetSchedule();
+  const controller = (scheduleController = new AbortController());
+  scheduleLoading.value = true;
+  try {
+    schedule.value = await fetchAircraftSchedule(props.aircraft.icao24, controller.signal);
+  } catch (e: unknown) {
+    if (controller.signal.aborted) return;
+    const code = e instanceof ApiError ? e.code : null;
+    scheduleError.value =
+      code === 'SCHEDULE_NOT_FOUND'
+        ? 'Sin vuelo activo para este indicativo'
+        : 'Horarios no disponibles por ahora'; // cupo agotado, servicio apagado o cualquier otro fallo
+  } finally {
+    if (!controller.signal.aborted) scheduleLoading.value = false;
+  }
+}
+
+const STATUS_ES: Record<string, string> = {
+  scheduled: 'Programado',
+  active: 'En vuelo',
+  landed: 'Aterrizó',
+  cancelled: 'Cancelado',
+  incident: 'Incidente',
+  diverted: 'Desviado',
+};
+const scheduleStatus = computed(() =>
+  schedule.value ? (STATUS_ES[schedule.value.status] ?? schedule.value.status) : null,
+);
+// Las horas llegan en UTC; se muestran en la hora local de quien mira
+const clockFmt = new Intl.DateTimeFormat('es', { hour: '2-digit', minute: '2-digit', timeZoneName: 'short' });
+const atTime = (iso: string | null) => (iso ? clockFmt.format(new Date(iso)) : '—');
+
+// Mejor hora disponible: real, si no estimada, si no programada
+function bestTime(t: FlightTimes): { label: string; iso: string } | null {
+  if (t.actual) return { label: 'Real', iso: t.actual };
+  if (t.estimated) return { label: 'Estimada', iso: t.estimated };
+  if (t.scheduled) return { label: 'Programada', iso: t.scheduled };
+  return null;
+}
+
+watch(
+  () => props.aircraft.icao24,
+  (icao24, _old, onCleanup) => {
+    const controller = new AbortController();
+    onCleanup(() => {
+      controller.abort();
+      resetSchedule();
+    });
+    details.value = null;
+    detailsError.value = null;
+    detailsLoading.value = true;
+    fetchAircraftDetails(icao24, controller.signal)
+      .then((d) => {
+        if (!controller.signal.aborted) details.value = d;
+      })
+      .catch((e: unknown) => {
+        if (!controller.signal.aborted) detailsError.value = e instanceof ApiError ? e.message : 'Error inesperado';
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) detailsLoading.value = false;
+      });
+  },
+  { immediate: true },
+);
+
+// La ruta de /schedule es la del tramo que vuela ahora: si llega, reemplaza a la de /details
+const route = computed(() => schedule.value?.route ?? details.value?.route ?? null);
+const progress = computed(() =>
+  schedule.value?.route ? schedule.value.progress : (details.value?.progress ?? null),
+);
+const info = computed(() => details.value?.aircraft ?? null);
+
+const callsign = computed(
+  () =>
+    route.value?.flightNumber ??
+    schedule.value?.flightNumber ??
+    (props.aircraft.callsign?.trim() || 'Sin callsign'),
+);
+const airline = computed(() => route.value?.airline?.name ?? schedule.value?.airline ?? null);
+const airportCode = (a: Airport) => a.iata ?? a.icao;
+const airportCity = (a: Airport) => a.city ?? a.name;
+
+const eta = computed(() => {
+  const m = progress.value?.etaMinutes;
+  if (m == null) return null;
+  const h = Math.floor(m / 60);
+  const min = Math.round(m % 60);
+  return h > 0 ? `${h} h ${min} min` : `${min} min`;
+});
 
 // OpenSky entrega m/s y metros; se muestran también nudos y pies (unidades de aviación)
 const speed = computed(() => {
@@ -55,6 +166,7 @@ const num = new Intl.NumberFormat('es');
     </header>
 
     <h2 class="callsign">{{ callsign }}</h2>
+    <p v-if="airline" class="airline">{{ airline }}</p>
     <p v-if="signalLost" class="status is-lost" role="status">
       <span class="dot" />
       Señal perdida{{ hasTs ? ` hace ${lostMinutes} min` : '' }}
@@ -63,6 +175,106 @@ const num = new Intl.NumberFormat('es');
       <span class="dot" />
       {{ aircraft.onGround ? 'En tierra' : 'En el aire' }}
     </p>
+
+    <!-- Ruta y avión: si fallan, solo un aviso; los datos en vivo siguen abajo -->
+    <p v-if="detailsLoading" class="note">Cargando ruta…</p>
+    <template v-else>
+      <p v-if="detailsError && !route" class="note is-warn">No se pudo cargar la ruta. {{ detailsError }}</p>
+      <section v-if="route" class="route" aria-label="Ruta">
+        <div class="airports">
+          <div>
+            <span class="iata mono">{{ airportCode(route.origin) }}</span>
+            <span class="city">{{ airportCity(route.origin) }}</span>
+          </div>
+          <span class="arrow" aria-hidden="true">→</span>
+          <div class="end">
+            <span class="iata mono">{{ airportCode(route.destination) }}</span>
+            <span class="city">{{ airportCity(route.destination) }}</span>
+          </div>
+        </div>
+        <p v-if="!route.verified" class="note is-warn">Ruta no verificada</p>
+        <div v-if="progress" class="progress">
+          <div
+            class="bar"
+            role="progressbar"
+            aria-label="Progreso del vuelo"
+            :aria-valuenow="Math.round(progress.percent)"
+            aria-valuemin="0"
+            aria-valuemax="100"
+          >
+            <span :style="{ width: `${Math.min(100, Math.max(0, progress.percent))}%` }" />
+          </div>
+          <p class="progress-km">
+            <span>{{ num.format(Math.round(progress.flownKm)) }} km recorridos</span>
+            <span>{{ num.format(Math.round(progress.remainingKm)) }} km restantes</span>
+          </p>
+          <p v-if="eta" class="eta">Llega en ~{{ eta }}</p>
+        </div>
+      </section>
+      <p v-else-if="details" class="note">Ruta no disponible</p>
+
+      <section v-if="info" class="plane" aria-label="Avión">
+        <component
+          :is="info.photoUrl ? 'a' : 'div'"
+          v-if="info.photoThumbnailUrl"
+          class="photo"
+          v-bind="info.photoUrl ? { href: info.photoUrl, target: '_blank', rel: 'noopener' } : {}"
+        >
+          <img :src="info.photoThumbnailUrl" :alt="`Foto del avión ${info.registration ?? ''}`" loading="lazy" />
+        </component>
+        <div>
+          <p class="model">{{ info.model ?? info.icaoType ?? 'Modelo desconocido' }}</p>
+          <p class="reg">
+            <span v-if="info.registration" class="mono">{{ info.registration }}</span>
+            <span v-if="info.owner"> · {{ info.owner }}</span>
+          </p>
+        </div>
+      </section>
+
+      <!-- Aviationstack busca por indicativo: el botón sale aunque /details no diera ruta -->
+      <section v-if="aircraft.callsign" class="schedule" aria-label="Horarios">
+        <button
+          v-if="!schedule && !scheduleError"
+          type="button"
+          class="schedule-btn"
+          :disabled="scheduleLoading"
+          @click="loadSchedule()"
+        >
+          {{ scheduleLoading ? 'Cargando horarios…' : 'Ver horarios' }}
+        </button>
+        <p v-else-if="scheduleError" class="note is-warn" role="status">{{ scheduleError }}</p>
+        <template v-else-if="schedule">
+          <p class="schedule-status">{{ scheduleStatus }}</p>
+          <div class="times">
+            <div v-for="leg in [
+              { label: 'Salida', t: schedule.departure },
+              { label: 'Llegada', t: schedule.arrival },
+            ]" :key="leg.label">
+              <p class="leg">
+                {{ leg.label }}
+                <span v-if="leg.t.airport" class="mono">{{ leg.t.airport.iata ?? leg.t.airport.icao }}</span>
+              </p>
+              <template v-for="best in [bestTime(leg.t)]" :key="leg.label">
+                <p class="time">
+                  {{ best ? atTime(best.iso) : '—' }}
+                  <span v-if="leg.t.delayMinutes && leg.t.delayMinutes > 0" class="delay">
+                    +{{ leg.t.delayMinutes }} min
+                  </span>
+                </p>
+                <p v-if="best" class="sub">{{ best.label }}</p>
+                <p v-if="best && best.label !== 'Programada' && leg.t.scheduled" class="sub">
+                  Programada {{ atTime(leg.t.scheduled) }}
+                </p>
+              </template>
+              <p class="sub">
+                Terminal {{ leg.t.terminal ?? '—' }} · Puerta {{ leg.t.gate ?? '—' }}
+              </p>
+            </div>
+          </div>
+        </template>
+        <p class="source">Horarios: {{ schedule?.source ?? 'Aviationstack' }}</p>
+      </section>
+    </template>
 
     <dl class="stats">
       <div>
@@ -166,6 +378,154 @@ const num = new Intl.NumberFormat('es');
   overflow-wrap: anywhere;
   font-weight: 800;
   letter-spacing: -0.02em;
+}
+.airline {
+  margin: 0 0 4px;
+  font-size: 15px;
+  color: var(--text-2);
+}
+.note {
+  margin: 0 0 14px;
+  font-size: 14px;
+  color: var(--text-2);
+}
+.note.is-warn {
+  color: var(--warning);
+}
+.route {
+  margin: 0 0 16px;
+}
+.airports {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 10px;
+}
+.airports > div {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+.airports .end {
+  text-align: right;
+}
+.iata {
+  font-size: 30px;
+  font-weight: 800;
+  letter-spacing: -0.01em;
+}
+.city {
+  font-size: 13px;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+.arrow {
+  font-size: 22px;
+  color: var(--text-2);
+}
+.bar {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--surface-2);
+  overflow: hidden;
+}
+.bar span {
+  display: block;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--plane-selected);
+}
+.progress-km {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 6px 0 0;
+  font-size: 13px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.eta {
+  margin: 6px 0 0;
+  font-weight: 700;
+}
+.plane {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 0 0 16px;
+}
+.photo {
+  flex: none;
+}
+.photo img {
+  display: block;
+  width: 96px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: 10px;
+  background: var(--surface-2);
+}
+.model {
+  margin: 0;
+  font-weight: 700;
+}
+.reg {
+  margin: 2px 0 0;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.schedule {
+  margin: 0 0 16px;
+}
+.schedule-btn {
+  width: 100%;
+  min-height: 44px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: var(--surface-2);
+  color: var(--text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+}
+.schedule-btn:hover {
+  background: var(--line);
+}
+.schedule-btn:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+.schedule-status {
+  margin: 0 0 8px;
+  font-weight: 700;
+}
+.times {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+.times p {
+  margin: 0;
+}
+.leg {
+  font-size: 13px;
+  color: var(--text-2);
+}
+.time {
+  font-size: 20px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+.delay {
+  white-space: nowrap;
+  font-size: 14px;
+  color: var(--danger);
+}
+.source {
+  margin: 8px 0 0;
+  font-size: 12px;
+  color: var(--text-2);
 }
 .status {
   display: inline-flex;

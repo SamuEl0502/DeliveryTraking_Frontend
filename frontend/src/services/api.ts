@@ -1,14 +1,17 @@
 import axios, { AxiosError } from 'axios';
 import type { AircraftListResponse } from '../types/aircraft';
+import type { AircraftDetails, FlightSchedule } from '../types/flightDetails';
 
-/** Error normalizado: la UI solo necesita un mensaje y, si existe, el código HTTP */
+/** Error normalizado: mensaje para la UI, código HTTP y `code` del backend si existen */
 export class ApiError extends Error {
   readonly status: number | null;
+  readonly code: string | null;
 
-  constructor(message: string, status: number | null) {
+  constructor(message: string, status: number | null, code: string | null = null) {
     super(message);
     this.name = 'ApiError';
     this.status = status;
+    this.code = code;
   }
 }
 
@@ -31,10 +34,12 @@ api.interceptors.response.use(
       }
       const status = error.response.status;
       // Formato del backend: { error: { code, message, correlationId } }; si no viene, mensaje genérico
-      const body = (error.response.data as { error?: { message?: string; correlationId?: string } } | undefined)?.error;
+      const body = (
+        error.response.data as { error?: { code?: string; message?: string; correlationId?: string } } | undefined
+      )?.error;
       const message = body?.message?.replace(/\.$/, '') ?? `El servidor respondió con error ${status}`;
       const ref = body?.correlationId ? ` (ref. ${body.correlationId})` : '';
-      return Promise.reject(new ApiError(message + ref, status));
+      return Promise.reject(new ApiError(message + ref, status, body?.code ?? null));
     }
     return Promise.reject(new ApiError('Error inesperado', null));
   },
@@ -42,5 +47,17 @@ api.interceptors.response.use(
 
 export async function fetchAircraft(): Promise<AircraftListResponse> {
   const { data } = await api.get<AircraftListResponse>('/api/aircraft');
+  return data;
+}
+
+/** Avión, ruta y progreso. Una vez por selección: el backend lo cachea 6 h */
+export async function fetchAircraftDetails(icao24: string, signal?: AbortSignal): Promise<AircraftDetails> {
+  const { data } = await api.get<AircraftDetails>(`/api/aircraft/${icao24}/details`, { signal });
+  return data;
+}
+
+/** Horarios y ruta real de Aviationstack. Solo a pedido del usuario: el cupo es de 100 al mes */
+export async function fetchAircraftSchedule(icao24: string, signal?: AbortSignal): Promise<FlightSchedule> {
+  const { data } = await api.get<FlightSchedule>(`/api/aircraft/${icao24}/schedule`, { signal });
   return data;
 }

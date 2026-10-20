@@ -17,6 +17,9 @@ export interface AircraftInfo {
   owner: string | null;
   photoUrl: string | null;
   photoThumbnailUrl: string | null;
+  /** Página de la foto en Planespotters; el frontend debe enlazarla junto al fotógrafo */
+  photoLink: string | null;
+  photographer: string | null;
 }
 
 export interface FlightRoute {

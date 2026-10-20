@@ -68,6 +68,7 @@ frontend/
 - Movimiento suave: extrapolación con velocidad y rumbo, más corrección con lerp; "señal perdida" tras 2 min sin datos.
 - Indicador de carga y banner de error con reintento si el backend no responde. El banner muestra el `message` que manda el backend y su `correlationId` como "ref." para buscarlo en los logs. Si la respuesta no trae ese formato, muestra un mensaje genérico con el código HTTP.
 - Si OpenSky no manda la hora de un avión (`ts = 0`), el panel muestra "sin hora" y "Señal perdida", en vez de una fecha de 1970.
+- Panel del avión: la foto va arriba, a todo el ancho del panel y en proporción 3:2, con el crédito "Foto: {fotógrafo} / Planespotters" enlazado a la página de la foto, como exige Planespotters. Debajo están la ruta y la barra de progreso del recorrido, que no lleva número; el porcentaje queda solo en el `aria-label` para lectores de pantalla.
 - Diseño responsive (mobile-first, panel lateral en escritorio y hoja inferior en móvil).
 
 **Viene después**

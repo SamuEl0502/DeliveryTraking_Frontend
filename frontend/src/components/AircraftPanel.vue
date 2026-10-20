@@ -181,10 +181,6 @@ const num = new Intl.NumberFormat('es');
     <template v-else>
       <p v-if="detailsError && !route" class="note is-warn">No se pudo cargar la ruta. {{ detailsError }}</p>
       <section v-if="route" class="route" aria-label="Ruta">
-        <p v-if="progress" class="percent">
-          <strong>{{ Math.round(Math.min(100, Math.max(0, progress.percent))) }} %</strong>
-          <span>del recorrido</span>
-        </p>
         <div class="airports">
           <div>
             <span class="iata mono">{{ airportCode(route.origin) }}</span>
@@ -201,7 +197,7 @@ const num = new Intl.NumberFormat('es');
           <div
             class="bar"
             role="progressbar"
-            aria-label="Progreso del vuelo"
+            :aria-label="`Progreso del vuelo: ${Math.round(progress.percent)} %`"
             :aria-valuenow="Math.round(progress.percent)"
             aria-valuemin="0"
             aria-valuemax="100"
@@ -218,14 +214,24 @@ const num = new Intl.NumberFormat('es');
       <p v-else-if="details" class="note">Ruta no disponible</p>
 
       <section v-if="info" class="plane" aria-label="Avión">
-        <component
-          :is="info.photoUrl ? 'a' : 'div'"
-          v-if="info.photoThumbnailUrl"
-          class="photo"
-          v-bind="info.photoUrl ? { href: info.photoUrl, target: '_blank', rel: 'noopener' } : {}"
-        >
-          <img :src="info.photoThumbnailUrl" :alt="`Foto del avión ${info.registration ?? ''}`" loading="lazy" />
-        </component>
+        <figure v-if="info.photoUrl ?? info.photoThumbnailUrl" class="photo">
+          <component
+            :is="info.photoLink ? 'a' : 'div'"
+            v-bind="info.photoLink ? { href: info.photoLink, target: '_blank', rel: 'noopener' } : {}"
+          >
+            <img
+              :src="info.photoUrl ?? info.photoThumbnailUrl ?? undefined"
+              :alt="`Foto del avión ${[info.registration, info.model].filter(Boolean).join(' ')}`"
+              loading="lazy"
+            />
+          </component>
+          <!-- Planespotters exige el crédito del fotógrafo con enlace a la foto -->
+          <figcaption v-if="info.photographer" class="credit">
+            Foto:
+            <a v-if="info.photoLink" :href="info.photoLink" target="_blank" rel="noopener">{{ info.photographer }} / Planespotters</a>
+            <template v-else>{{ info.photographer }} / Planespotters</template>
+          </figcaption>
+        </figure>
         <div>
           <p class="model">{{ info.model ?? info.icaoType ?? 'Modelo desconocido' }}</p>
           <p class="reg">
@@ -399,22 +405,6 @@ const num = new Intl.NumberFormat('es');
 .route {
   margin: 0 0 16px;
 }
-/* Porcentaje del recorrido encima de origen/destino, al estilo FlightRadar24 */
-.percent {
-  display: flex;
-  align-items: baseline;
-  justify-content: center;
-  gap: 6px;
-  margin: 0 0 6px;
-  color: var(--text-2);
-  font-size: 13px;
-}
-.percent strong {
-  color: var(--plane-selected);
-  font-size: 22px;
-  font-weight: 800;
-  font-variant-numeric: tabular-nums;
-}
 .airports {
   display: flex;
   align-items: center;
@@ -470,21 +460,27 @@ const num = new Intl.NumberFormat('es');
   font-weight: 700;
 }
 .plane {
-  display: flex;
-  align-items: center;
-  gap: 12px;
   margin: 0 0 16px;
 }
+/* Foto arriba y a todo el ancho del panel, 3:2 como la de Planespotters (420×280) */
 .photo {
-  flex: none;
+  margin: 0 0 10px;
 }
 .photo img {
   display: block;
-  width: 96px;
-  height: 64px;
+  width: 100%;
+  aspect-ratio: 3 / 2;
   object-fit: cover;
-  border-radius: 10px;
+  border-radius: 14px;
   background: var(--surface-2);
+}
+.credit {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-2);
+}
+.credit a {
+  color: inherit;
 }
 .model {
   margin: 0;

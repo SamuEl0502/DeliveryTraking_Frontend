@@ -181,6 +181,10 @@ const num = new Intl.NumberFormat('es');
     <template v-else>
       <p v-if="detailsError && !route" class="note is-warn">No se pudo cargar la ruta. {{ detailsError }}</p>
       <section v-if="route" class="route" aria-label="Ruta">
+        <p v-if="progress" class="percent">
+          <strong>{{ Math.round(Math.min(100, Math.max(0, progress.percent))) }} %</strong>
+          <span>del recorrido</span>
+        </p>
         <div class="airports">
           <div>
             <span class="iata mono">{{ airportCode(route.origin) }}</span>
@@ -394,6 +398,22 @@ const num = new Intl.NumberFormat('es');
 }
 .route {
   margin: 0 0 16px;
+}
+/* Porcentaje del recorrido encima de origen/destino, al estilo FlightRadar24 */
+.percent {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 6px;
+  margin: 0 0 6px;
+  color: var(--text-2);
+  font-size: 13px;
+}
+.percent strong {
+  color: var(--plane-selected);
+  font-size: 22px;
+  font-weight: 800;
+  font-variant-numeric: tabular-nums;
 }
 .airports {
   display: flex;

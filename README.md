@@ -69,6 +69,7 @@ frontend/
 - Indicador de carga y banner de error con reintento si el backend no responde. El banner muestra el `message` que manda el backend y su `correlationId` como "ref." para buscarlo en los logs. Si la respuesta no trae ese formato, muestra un mensaje genérico con el código HTTP.
 - Si OpenSky no manda la hora de un avión (`ts = 0`), el panel muestra "sin hora" y "Señal perdida", en vez de una fecha de 1970.
 - Panel del avión: la foto va arriba, a todo el ancho del panel y en proporción 3:2, con el crédito "Foto: {fotógrafo} / Planespotters" enlazado a la página de la foto, como exige Planespotters. Debajo están la ruta y la barra de progreso del recorrido, que no lleva número; el porcentaje queda solo en el `aria-label` para lectores de pantalla.
+- Buscador de vuelos en la tarjeta "En el aire". Filtra en el navegador la lista de aviones en el aire que ya trajo el backend, así que no gasta API. Acepta el número comercial IATA (`WN590`, `B6123`) y lo traduce al callsign ICAO (`SWA590`, `JBU123`) para las 11 aerolíneas principales de EE. UU. (tabla en `src/utils/flightSearch.ts`). El callsign ICAO también funciona directo. Muestra hasta 8 sugerencias; con clic o Enter se abre el panel del avión y el mapa vuela hasta él. Se maneja con teclado: flechas, Enter y Escape. Prueba: `npm test` (Node 22.6 o superior).
 - Diseño responsive (mobile-first, panel lateral en escritorio y hoja inferior en móvil).
 
 **Viene después**

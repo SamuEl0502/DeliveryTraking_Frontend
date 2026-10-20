@@ -118,6 +118,13 @@ onMounted(() => {
   render();
 });
 
+/** Centra el mapa en un avión (lo usa el buscador); acerca hasta zoom 8 si se está más lejos */
+function focus(a: AircraftState): void {
+  const pos = extrapolate(a, Date.now());
+  map?.flyTo([pos.lat, pos.lng], Math.max(map.getZoom(), 8), { duration: 1 });
+}
+defineExpose({ focus });
+
 watch(() => store.byIcao, render);
 watch(() => store.selectedIcao24, render);
 

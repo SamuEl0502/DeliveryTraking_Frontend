@@ -5,3 +5,7 @@ dist/
 !.env.example
 *.log
 *.tsbuildinfo
+
+# Configuración local de cada persona
+.serena/
+.vscode/

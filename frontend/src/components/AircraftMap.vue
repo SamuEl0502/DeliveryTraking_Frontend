@@ -3,7 +3,8 @@ import * as L from 'leaflet';
 import { onMounted, onUnmounted, ref, watch } from 'vue';
 import { extrapolate, isSignalLost, useSmoothedPosition } from '../composables/useSmoothedPosition';
 import { useAircraftStore } from '../store/aircraft';
-import type { AircraftState } from '../types/aircraft';
+import { fetchAircraftTrack } from '../services/api';
+import type { AircraftState, TrackPoint } from '../types/aircraft';
 import { type AircraftClass, classOf } from '../utils/aircraftClass';
 import { ALT_BANDS, altColor } from '../utils/altitude';
 import { greatCircle } from '../utils/greatCircle';
@@ -72,41 +73,78 @@ function applyState(marker: L.Marker, a: AircraftState, isSelected: boolean, los
 }
 
 // Ruta y estela del avión seguido. Las líneas van en overlayPane, debajo de los marcadores
-const TRAIL_MAX = 500;
+const TRACK_REFRESH_MS = 60_000;
+const LIVE_MAX = 500;
 let overlay: L.LayerGroup | null = null;
-let trailId: string | null = null;
-let trail: { lat: number; lng: number; color: string }[] = [];
+// Estela = recorrido de OpenSky desde el despegue (/track) + posiciones reales del polling.
+// Solo posiciones reales con su ts: la suavizada haría zigzags al corregirse
+let track: TrackPoint[] = [];
+let live: TrackPoint[] = [];
+let trackTimer: ReturnType<typeof setInterval> | null = null;
+let trackController: AbortController | null = null;
+
+function stopTrack(): void {
+  if (trackTimer !== null) clearInterval(trackTimer);
+  trackTimer = null;
+  trackController?.abort();
+  trackController = null;
+  track = [];
+  live = [];
+}
+
+/** Al seleccionar: pide el recorrido una vez y luego cada 60 s; si falla (404 TRACK_NOT_FOUND), solo la estela en vivo */
+function startTrack(icao24: string): void {
+  stopTrack();
+  const load = () => {
+    trackController?.abort();
+    const controller = (trackController = new AbortController());
+    fetchAircraftTrack(icao24, controller.signal)
+      .then((t) => {
+        if (controller.signal.aborted) return;
+        track = t.path;
+        const lastTs = track.at(-1)?.ts ?? 0;
+        live = live.filter((p) => p.ts > lastTs);
+        drawOverlay();
+      })
+      .catch(() => {}); // sin recorrido se dibuja solo lo que llega en vivo
+  };
+  load();
+  trackTimer = setInterval(load, TRACK_REFRESH_MS);
+}
 
 function drawOverlay(): void {
   if (!overlay) return;
   overlay.clearLayers();
   const a = store.selected;
   const pos = a ? markers.get(a.icao24)?.getLatLng() : undefined;
-  if (!a || !pos) {
-    trailId = null;
-    trail = [];
-    return;
+  if (!a || !pos) return;
+
+  // Punto real nuevo solo cuando cambia ts
+  const lastTs = (live.at(-1) ?? track.at(-1))?.ts ?? 0;
+  if (a.ts > lastTs) {
+    live.push({ ts: a.ts, lat: a.lat, lng: a.lng, alt: a.alt, hdg: a.hdg, onGround: a.onGround });
+    if (live.length > LIVE_MAX) live.shift();
   }
 
-  // Estela: empieza al seleccionar; un punto por render (polling cada 10 s y revisión cada 5 s)
-  if (trailId !== a.icao24) {
-    trailId = a.icao24;
-    trail = [];
-  }
-  const last = trail.at(-1);
-  if (!last || last.lat !== pos.lat || last.lng !== pos.lng) {
-    trail.push({ lat: pos.lat, lng: pos.lng, color: altColor(a.alt, a.onGround) ?? '#1f6feb' }); // sin altitud: el azul de selección
-    if (trail.length > TRAIL_MAX) trail.shift();
-  }
-  // Un tramo por cada racha del mismo color, para no crear una polyline por punto
+  // Segmentos coloreados por la altitud de cada punto, agrupados en rachas del mismo color
+  const path = [...track, ...live];
+  const colorOf = (p: TrackPoint) => altColor(p.alt, p.onGround) ?? '#1f6feb'; // sin altitud: azul de selección
   let start = 0;
-  for (let i = 1; i <= trail.length; i++) {
-    if (i === trail.length || trail[i]!.color !== trail[start]!.color) {
-      const pts = trail.slice(start, Math.min(i + 1, trail.length)).map((p) => [p.lat, p.lng] as L.LatLngTuple);
-      if (pts.length > 1) L.polyline(pts, { color: trail[start]!.color, weight: 4, interactive: false }).addTo(overlay);
+  for (let i = 1; i <= path.length; i++) {
+    if (i === path.length || colorOf(path[i]!) !== colorOf(path[start]!)) {
+      const pts = path.slice(start, Math.min(i + 1, path.length)).map((p) => [p.lat, p.lng] as L.LatLngTuple);
+      if (pts.length > 1) L.polyline(pts, { color: colorOf(path[start]!), weight: 3, interactive: false }).addTo(overlay);
       start = i;
     }
   }
+  for (const p of path) {
+    L.circleMarker([p.lat, p.lng], { radius: 2, stroke: false, fillColor: colorOf(p), fillOpacity: 1, interactive: false }).addTo(
+      overlay,
+    );
+  }
+  // Del último punto real al icono suavizado: línea fina, no se guarda
+  const last = path.at(-1);
+  if (last) L.polyline([[last.lat, last.lng], pos], { color: colorOf(last), weight: 1.5, interactive: false }).addTo(overlay);
 
   const route = store.selectedRoute;
   if (!route) return;
@@ -237,11 +275,17 @@ defineExpose({ focus });
 
 watch(() => store.byIcao, render);
 watch(() => store.selectedIcao24, render);
+watch(
+  () => store.selectedIcao24,
+  (id) => (id ? startTrack(id) : stopTrack()),
+  { immediate: true },
+);
 watch(() => store.selectedLabel, syncLabel);
 watch(() => store.selectedRoute, drawOverlay);
 
 onUnmounted(() => {
   if (staleTimer !== null) clearInterval(staleTimer);
+  stopTrack();
   map?.remove();
   map = null;
   layer = null;

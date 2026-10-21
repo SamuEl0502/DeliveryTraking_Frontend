@@ -5,6 +5,8 @@ import { extrapolate, isSignalLost, useSmoothedPosition } from '../composables/u
 import { useAircraftStore } from '../store/aircraft';
 import type { AircraftState } from '../types/aircraft';
 import { type AircraftClass, classOf } from '../utils/aircraftClass';
+import { ALT_BANDS, altColor } from '../utils/altitude';
+import { greatCircle } from '../utils/greatCircle';
 
 const MAX_MARKERS = 400;
 const MAX_ANIMATED = 60; // además del avión seguido
@@ -65,6 +67,59 @@ function applyState(marker: L.Marker, a: AircraftState, isSelected: boolean, los
   el.classList.toggle('is-selected', isSelected);
   el.classList.toggle('is-ground', a.onGround);
   el.classList.toggle('is-stale', lost);
+  // Color por altitud; la selección y la señal perdida lo tapan desde el CSS
+  el.style.setProperty('--alt-color', altColor(a.alt, a.onGround) ?? '');
+}
+
+// Ruta y estela del avión seguido. Las líneas van en overlayPane, debajo de los marcadores
+const TRAIL_MAX = 500;
+let overlay: L.LayerGroup | null = null;
+let trailId: string | null = null;
+let trail: { lat: number; lng: number; color: string }[] = [];
+
+function drawOverlay(): void {
+  if (!overlay) return;
+  overlay.clearLayers();
+  const a = store.selected;
+  const pos = a ? markers.get(a.icao24)?.getLatLng() : undefined;
+  if (!a || !pos) {
+    trailId = null;
+    trail = [];
+    return;
+  }
+
+  // Estela: empieza al seleccionar; un punto por render (polling cada 10 s y revisión cada 5 s)
+  if (trailId !== a.icao24) {
+    trailId = a.icao24;
+    trail = [];
+  }
+  const last = trail.at(-1);
+  if (!last || last.lat !== pos.lat || last.lng !== pos.lng) {
+    trail.push({ lat: pos.lat, lng: pos.lng, color: altColor(a.alt, a.onGround) ?? '#1f6feb' }); // sin altitud: el azul de selección
+    if (trail.length > TRAIL_MAX) trail.shift();
+  }
+  // Un tramo por cada racha del mismo color, para no crear una polyline por punto
+  let start = 0;
+  for (let i = 1; i <= trail.length; i++) {
+    if (i === trail.length || trail[i]!.color !== trail[start]!.color) {
+      const pts = trail.slice(start, Math.min(i + 1, trail.length)).map((p) => [p.lat, p.lng] as L.LatLngTuple);
+      if (pts.length > 1) L.polyline(pts, { color: trail[start]!.color, weight: 4, interactive: false }).addTo(overlay);
+      start = i;
+    }
+  }
+
+  const route = store.selectedRoute;
+  if (!route) return;
+  const here = { lat: pos.lat, lng: pos.lng };
+  L.polyline(greatCircle(route.origin, here), { className: 'route-done', interactive: false }).addTo(overlay);
+  L.polyline(greatCircle(here, route.destination), { className: 'route-left', dashArray: '6 8', interactive: false }).addTo(
+    overlay,
+  );
+  for (const ap of [route.origin, route.destination]) {
+    L.circleMarker([ap.lat, ap.lng], { radius: 5, className: 'route-airport' })
+      .bindTooltip(ap.iata ?? ap.icao, { direction: 'top', className: 'airport-label' })
+      .addTo(overlay);
+  }
 }
 
 // Una sola etiqueta con el número de vuelo, ligada al marcador seguido (estilo FlightRadar24)
@@ -147,6 +202,7 @@ function render(): void {
   }
 
   syncLabel();
+  drawOverlay();
   emit('rendered', visible.length);
 }
 
@@ -162,6 +218,7 @@ onMounted(() => {
   map.attributionControl.addAttribution(
     'Tipos de aeronave: <a href="https://www.mictronics.de/aircraft-database/">Mictronics</a>',
   );
+  overlay = L.layerGroup().addTo(map);
   layer = L.layerGroup().addTo(map);
 
   map.on('moveend', render); // también se dispara al hacer zoom
@@ -181,18 +238,28 @@ defineExpose({ focus });
 watch(() => store.byIcao, render);
 watch(() => store.selectedIcao24, render);
 watch(() => store.selectedLabel, syncLabel);
+watch(() => store.selectedRoute, drawOverlay);
 
 onUnmounted(() => {
   if (staleTimer !== null) clearInterval(staleTimer);
   map?.remove();
   map = null;
   layer = null;
+  overlay = null;
   markers.clear();
 });
 </script>
 
 <template>
   <div ref="mapEl" class="map" />
+  <!-- Leyenda: el color no puede ser la única forma de saber la altitud -->
+  <details class="sheet legend">
+    <summary>Altitud</summary>
+    <ul>
+      <li v-for="b in ALT_BANDS" :key="b.color"><span :style="{ background: b.color }" />{{ b.label }}</li>
+      <li><span style="background: #55575c" />En tierra</li>
+    </ul>
+  </details>
 </template>
 
 <style scoped>
@@ -203,5 +270,40 @@ onUnmounted(() => {
   height: 100%;
   width: 100%;
   background: var(--map-bg);
+}
+/* Abajo a la izquierda, junto al zoom; plegada por defecto para no tapar el mapa en móvil */
+.legend {
+  position: absolute;
+  left: 72px;
+  bottom: 20px;
+  z-index: 999;
+  padding: 8px 12px;
+  border-radius: 14px;
+  font-size: 12px;
+  max-width: calc(100% - 88px);
+}
+.legend summary {
+  cursor: pointer;
+  font-weight: 700;
+  min-height: 24px;
+  line-height: 24px;
+}
+.legend ul {
+  margin: 6px 0 0;
+  padding: 0;
+  list-style: none;
+}
+.legend li {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  line-height: 20px;
+  white-space: nowrap;
+}
+.legend li span {
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
 }
 </style>

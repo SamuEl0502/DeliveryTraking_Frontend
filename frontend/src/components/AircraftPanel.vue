@@ -128,7 +128,18 @@ watch(
   (label) => (store.selectedLabel = label),
   { immediate: true },
 );
-onUnmounted(() => (store.selectedLabel = null));
+// Ruta para dibujar en el mapa: la de /schedule, o la de /details solo si está verificada
+watch(
+  route,
+  (r) =>
+    (store.selectedRoute =
+      r && (schedule.value?.route || r.verified) ? { origin: r.origin, destination: r.destination } : null),
+  { immediate: true },
+);
+onUnmounted(() => {
+  store.selectedLabel = null;
+  store.selectedRoute = null;
+});
 
 const airline = computed(() => route.value?.airline?.name ?? schedule.value?.airline ?? null);
 const airportCode = (a: Airport) => a.iata ?? a.icao;

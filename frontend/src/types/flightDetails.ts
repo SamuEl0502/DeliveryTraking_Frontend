@@ -30,6 +30,8 @@ export interface FlightRoute {
   destination: Airport;
   /** false: la ruta sale del callsign sin confirmar; entonces progress llega null */
   verified: boolean;
+  /** true: el origen es el despegue real (OpenSky) y el destino el de adsbdb, que encaja con el rumbo pero no está confirmado */
+  estimated: boolean;
 }
 
 export interface FlightProgress {
@@ -48,6 +50,8 @@ export interface AircraftDetails {
   aircraft: AircraftInfo | null;
   route: FlightRoute | null;
   progress: FlightProgress | null;
+  /** Aeropuerto del que despegó según el recorrido de OpenSky; null si OpenSky no vio el despegue */
+  departure: Airport | null;
 }
 
 export interface FlightTimes {

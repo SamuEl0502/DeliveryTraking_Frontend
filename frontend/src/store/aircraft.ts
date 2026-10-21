@@ -14,8 +14,8 @@ export const useAircraftStore = defineStore('aircraft', () => {
   const selectedIcao24 = ref<string | null>(null);
   // Número de vuelo que muestra el panel; el mapa lo usa para la etiqueta del avión seguido
   const selectedLabel = ref<string | null>(null);
-  // Ruta confirmada del avión seguido (la pone el panel); null si no hay o no está verificada
-  const selectedRoute = shallowRef<{ origin: Airport; destination: Airport } | null>(null);
+  // Ruta confirmada del avión seguido (la pone el panel); destination null = solo se conoce el despegue
+  const selectedRoute = shallowRef<{ origin: Airport; destination: Airport | null } | null>(null);
 
   const total = computed(() => byIcao.value.size);
   const airborne = computed(() => [...byIcao.value.values()].filter((a) => !a.onGround));

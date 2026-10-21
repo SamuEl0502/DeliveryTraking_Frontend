@@ -128,12 +128,21 @@ watch(
   (label) => (store.selectedLabel = label),
   { immediate: true },
 );
-// Ruta para dibujar en el mapa: la de /schedule, o la de /details solo si está verificada
+// Despegue real (OpenSky) solo cuando no hay ruta confirmada: reemplaza al "Ruta no verificada"
+const departure = computed(() =>
+  schedule.value?.route || route.value?.verified ? null : (details.value?.departure ?? null),
+);
+
+// Mapa: la ruta de /schedule o la verificada de /details; si no, solo el punto del despegue
 watch(
-  route,
-  (r) =>
+  [route, departure],
+  ([r, dep]) =>
     (store.selectedRoute =
-      r && (schedule.value?.route || r.verified) ? { origin: r.origin, destination: r.destination } : null),
+      r && (schedule.value?.route || r.verified)
+        ? { origin: r.origin, destination: r.destination }
+        : dep
+          ? { origin: dep, destination: null }
+          : null),
   { immediate: true },
 );
 onUnmounted(() => {
@@ -204,7 +213,7 @@ const num = new Intl.NumberFormat('es');
     <p v-if="detailsLoading" class="note">Cargando ruta…</p>
     <template v-else>
       <p v-if="detailsError && !route" class="note is-warn">No se pudo cargar la ruta. {{ detailsError }}</p>
-      <section v-if="route" class="route" aria-label="Ruta">
+      <section v-if="route && !departure" class="route" aria-label="Ruta">
         <div class="airports">
           <div>
             <span class="iata mono">{{ airportCode(route.origin) }}</span>
@@ -217,6 +226,7 @@ const num = new Intl.NumberFormat('es');
           </div>
         </div>
         <p v-if="!route.verified" class="note is-warn">Ruta no verificada</p>
+        <p v-else-if="route.estimated" class="note">Origen según el despegue · destino estimado</p>
         <div v-if="progress" class="progress">
           <div
             class="bar"
@@ -233,6 +243,20 @@ const num = new Intl.NumberFormat('es');
             <span>{{ num.format(Math.round(progress.remainingKm)) }} km restantes</span>
           </p>
           <p v-if="eta" class="eta">Llega en ~{{ eta }}</p>
+        </div>
+      </section>
+      <!-- Sin ruta confirmada pero OpenSky vio el despegue: el origen real, sin inventar destino -->
+      <section v-else-if="departure" class="route" aria-label="Despegue">
+        <div class="airports">
+          <div>
+            <span class="iata mono">{{ airportCode(departure) }}</span>
+            <span class="city">Despegó de {{ airportCity(departure) }}</span>
+          </div>
+          <span class="arrow" aria-hidden="true">→</span>
+          <div class="end">
+            <span class="iata mono">—</span>
+            <span class="city">Destino desconocido</span>
+          </div>
         </div>
       </section>
       <p v-else-if="details" class="note">Ruta no disponible</p>

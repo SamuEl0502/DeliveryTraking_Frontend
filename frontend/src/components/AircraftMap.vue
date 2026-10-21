@@ -149,11 +149,13 @@ function drawOverlay(): void {
   const route = store.selectedRoute;
   if (!route) return;
   const here = { lat: pos.lat, lng: pos.lng };
-  L.polyline(greatCircle(route.origin, here), { className: 'route-done', interactive: false }).addTo(overlay);
-  L.polyline(greatCircle(here, route.destination), { className: 'route-left', dashArray: '6 8', interactive: false }).addTo(
-    overlay,
-  );
-  for (const ap of [route.origin, route.destination]) {
+  if (route.destination) {
+    L.polyline(greatCircle(route.origin, here), { className: 'route-done', interactive: false }).addTo(overlay);
+    L.polyline(greatCircle(here, route.destination), { className: 'route-left', dashArray: '6 8', interactive: false }).addTo(
+      overlay,
+    );
+  }
+  for (const ap of route.destination ? [route.origin, route.destination] : [route.origin]) {
     L.circleMarker([ap.lat, ap.lng], { radius: 5, className: 'route-airport' })
       .bindTooltip(ap.iata ?? ap.icao, { direction: 'top', className: 'airport-label' })
       .addTo(overlay);

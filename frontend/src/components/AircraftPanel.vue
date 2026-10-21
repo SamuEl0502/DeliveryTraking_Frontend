@@ -224,7 +224,6 @@ const num = new Intl.NumberFormat('es');
           </div>
         </div>
         <p v-if="!route.verified" class="note is-warn">Ruta no verificada</p>
-        <p v-else-if="route.estimated" class="note">Origen según el despegue · destino estimado</p>
         <div v-if="progress" class="progress">
           <div
             class="bar"

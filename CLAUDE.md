@@ -7,9 +7,11 @@ En este proyecto trabajan dos personas, cada una con sesiones de Claude en los d
 1. **Cada tarea en su propia rama, creada desde `origin/main`:**
    ```powershell
    git fetch origin
-   git switch -c feature/<nombre> origin/main
+   git switch -c feature/<nombre> --no-track origin/main
+   git push -u origin feature/<nombre>   # solo cuando el usuario autorice el push
    ```
    Así la rama parte de lo último que hay en GitHub, aunque el `main` local esté atrasado. No hace falta `git pull`.
+   **Siempre usa `--no-track`.** Sin esa opción, la rama queda enlazada a `origin/main`, y un `git push` o el "Sync" de VS Code subirían los commits directo a `main`; así entraron 3 commits sin PR al `main` del backend. Antes de subir, revísalo con `git for-each-ref --format='%(refname:short) -> %(upstream:short)' refs/heads`.
 2. Nombres de rama: `feature/<nombre>` (funcionalidad), `fix/<nombre>` (arreglo), `docs/<nombre>` (solo documentación).
 3. **Una rama = una tarea = un PR.** Cuando el usuario fusiona el PR, esa rama se da por terminada; el siguiente trabajo va en una rama nueva desde `origin/main`.
 4. Antes de abrir el PR, avisa si `origin/main` avanzó desde que se creó la rama (`git log HEAD..origin/main`), para que el usuario decida si se actualiza.

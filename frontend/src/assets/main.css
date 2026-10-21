@@ -109,3 +109,18 @@ body {
   box-shadow: var(--shadow) !important;
   border: 0 !important;
 }
+
+/* Etiqueta con el número de vuelo encima del avión seguido (estilo FlightRadar24) */
+.leaflet-tooltip.flight-label {
+  padding: 2px 8px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--plane-selected);
+  color: #fff;
+  font: 700 12px ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  box-shadow: var(--shadow);
+  pointer-events: none;
+}
+.leaflet-tooltip-top.flight-label::before {
+  border-top-color: var(--plane-selected);
+}

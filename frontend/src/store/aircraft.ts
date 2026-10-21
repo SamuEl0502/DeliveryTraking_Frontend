@@ -11,6 +11,8 @@ export const useAircraftStore = defineStore('aircraft', () => {
   const error = ref<string | null>(null);
   const lastUpdated = ref<number | null>(null); // Date.now() del último éxito
   const selectedIcao24 = ref<string | null>(null);
+  // Número de vuelo que muestra el panel; el mapa lo usa para la etiqueta del avión seguido
+  const selectedLabel = ref<string | null>(null);
 
   const total = computed(() => byIcao.value.size);
   const airborne = computed(() => [...byIcao.value.values()].filter((a) => !a.onGround));
@@ -55,6 +57,7 @@ export const useAircraftStore = defineStore('aircraft', () => {
     error,
     lastUpdated,
     selectedIcao24,
+    selectedLabel,
     total,
     airborne,
     selected,

@@ -42,6 +42,26 @@ function applyState(marker: L.Marker, a: AircraftState, isSelected: boolean, los
   el.classList.toggle('is-stale', lost);
 }
 
+// Una sola etiqueta con el número de vuelo, ligada al marcador seguido (estilo FlightRadar24)
+const label = L.tooltip({ permanent: true, direction: 'top', className: 'flight-label', offset: [0, -14] });
+let labelOn: L.Marker | null = null;
+
+function syncLabel(): void {
+  const marker = store.selectedIcao24 ? markers.get(store.selectedIcao24) : undefined;
+  const text = marker ? store.selectedLabel : null;
+  if (labelOn && (labelOn !== marker || !text)) {
+    labelOn.unbindTooltip();
+    labelOn = null;
+  }
+  if (!marker || !text) return;
+  label.setContent(text);
+  if (labelOn !== marker) {
+    marker.bindTooltip(label).openTooltip();
+    labelOn = marker;
+  }
+  label.getElement()?.setAttribute('aria-hidden', 'true'); // decorativa: el panel ya lo dice
+}
+
 /** Solo vale la pena animar lo que se mueve y tiene señal reciente */
 function canAnimate(a: AircraftState, now: number): boolean {
   return !a.onGround && a.spd !== null && a.hdg !== null && !isSignalLost(a, now);
@@ -98,6 +118,7 @@ function render(): void {
     }
   }
 
+  syncLabel();
   emit('rendered', visible.length);
 }
 
@@ -127,6 +148,7 @@ defineExpose({ focus });
 
 watch(() => store.byIcao, render);
 watch(() => store.selectedIcao24, render);
+watch(() => store.selectedLabel, syncLabel);
 
 onUnmounted(() => {
   if (staleTimer !== null) clearInterval(staleTimer);

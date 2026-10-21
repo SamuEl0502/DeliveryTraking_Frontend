@@ -2,6 +2,7 @@
 import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue';
 import { SIGNAL_LOST_S } from '../composables/useSmoothedPosition';
 import { ApiError, fetchAircraftDetails, fetchAircraftSchedule } from '../services/api';
+import { useAircraftStore } from '../store/aircraft';
 import type { AircraftState } from '../types/aircraft';
 import type { AircraftDetails, Airport, FlightSchedule, FlightTimes } from '../types/flightDetails';
 
@@ -117,6 +118,18 @@ const callsign = computed(
     schedule.value?.flightNumber ??
     (props.aircraft.callsign?.trim() || 'Sin callsign'),
 );
+// Etiqueta del mapa: número comercial si ya llegó; si no, callsign; si no, icao24
+const store = useAircraftStore();
+watch(
+  () =>
+    schedule.value?.flightNumber ??
+    route.value?.flightNumber ??
+    (props.aircraft.callsign?.trim() || props.aircraft.icao24.toUpperCase()),
+  (label) => (store.selectedLabel = label),
+  { immediate: true },
+);
+onUnmounted(() => (store.selectedLabel = null));
+
 const airline = computed(() => route.value?.airline?.name ?? schedule.value?.airline ?? null);
 const airportCode = (a: Airport) => a.iata ?? a.icao;
 const airportCity = (a: Airport) => a.city ?? a.name;

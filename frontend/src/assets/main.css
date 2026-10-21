@@ -48,7 +48,7 @@ body {
 }
 
 /* Marcadores de Leaflet: viven fuera de los componentes, por eso son estilos globales */
-/* El marcador mide 40x40 (área de toque cómoda) aunque el avión dibujado sea de 22 px */
+/* El marcador mide 40x40 (área de toque cómoda); el avión dibujado va de 14 a 36 px según su envergadura */
 .plane-marker {
   background: none;
   border: 0;
@@ -57,9 +57,12 @@ body {
   justify-content: center;
   cursor: pointer;
 }
+/* --size viene en el icono de cada familia; --zoom-scale lo pone el mapa según el zoom */
 .plane-marker .plane {
-  width: 22px;
-  height: 22px;
+  --size: 22px;
+  flex: none;
+  width: calc(var(--size) * var(--zoom-scale, 1));
+  height: calc(var(--size) * var(--zoom-scale, 1));
   transition: transform 0.4s ease;
 }
 .plane-marker svg {
@@ -71,6 +74,9 @@ body {
   paint-order: stroke;
   cursor: pointer;
 }
+.plane-marker .rotor {
+  fill-opacity: 0.35;
+}
 .plane-marker.is-ground svg {
   fill: var(--plane-ground);
 }
@@ -78,8 +84,8 @@ body {
   z-index: 10000 !important;
 }
 .plane-marker.is-selected .plane {
-  width: 30px;
-  height: 30px;
+  width: calc(var(--size) * var(--zoom-scale, 1) * 1.35);
+  height: calc(var(--size) * var(--zoom-scale, 1) * 1.35);
 }
 .plane-marker.is-selected svg {
   fill: var(--plane-selected);
@@ -108,4 +114,31 @@ body {
   overflow: hidden;
   box-shadow: var(--shadow) !important;
   border: 0 !important;
+}
+
+/* Aeropuertos de la ruta del avión seguido */
+.route-airport {
+  stroke: #fff;
+  stroke-width: 2;
+  fill: var(--plane-selected);
+  fill-opacity: 1;
+}
+.leaflet-tooltip.airport-label {
+  padding: 1px 6px;
+  font: 700 11px ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+
+/* Etiqueta con el número de vuelo encima del avión seguido (estilo FlightRadar24) */
+.leaflet-tooltip.flight-label {
+  padding: 2px 8px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--plane-selected);
+  color: #fff;
+  font: 700 12px ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  box-shadow: var(--shadow);
+  pointer-events: none;
+}
+.leaflet-tooltip-top.flight-label::before {
+  border-top-color: var(--plane-selected);
 }

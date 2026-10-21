@@ -2,13 +2,21 @@
 import { computed, ref } from 'vue';
 import AircraftMap from '../components/AircraftMap.vue';
 import AircraftPanel from '../components/AircraftPanel.vue';
+import FlightSearch from '../components/FlightSearch.vue';
 import { usePolling } from '../composables/usePolling';
 import { useAircraftStore } from '../store/aircraft';
+import type { AircraftState } from '../types/aircraft';
 
 const POLL_INTERVAL_MS = 10_000;
 
 const store = useAircraftStore();
 const onScreen = ref(0);
+const mapRef = ref<InstanceType<typeof AircraftMap> | null>(null);
+
+function followFlight(a: AircraftState): void {
+  store.select(a.icao24);
+  mapRef.value?.focus(a);
+}
 
 usePolling(store.loadAircraft, POLL_INTERVAL_MS);
 
@@ -22,8 +30,10 @@ const firstLoad = computed(() => store.loading && !store.hasData);
 
 <template>
   <main class="map-view">
-    <AircraftMap @rendered="onScreen = $event" />
+    <AircraftMap ref="mapRef" @rendered="onScreen = $event" />
 
+    <!-- Columna superior: resumen con buscador y, debajo, el aviso de error -->
+    <div class="top">
     <section class="sheet summary">
       <h1>En el aire</h1>
       <p class="subtitle">
@@ -39,6 +49,7 @@ const firstLoad = computed(() => store.loading && !store.hasData);
         <span v-else-if="!store.loading">Sin datos todavía</span>
         <span v-else>Cargando…</span>
       </p>
+      <FlightSearch v-if="store.hasData" @pick="followFlight" />
     </section>
 
     <div v-if="store.error" class="sheet banner" role="alert">
@@ -53,6 +64,7 @@ const firstLoad = computed(() => store.loading && !store.hasData);
       <button type="button" class="retry" :disabled="store.loading" @click="store.loadAircraft()">
         Reintentar
       </button>
+    </div>
     </div>
 
     <div v-if="firstLoad" class="sheet loading" role="status">
@@ -71,12 +83,17 @@ const firstLoad = computed(() => store.loading && !store.hasData);
   height: 100%;
   overflow: hidden;
 }
-.summary {
+.top {
   position: absolute;
   top: 12px;
   left: 12px;
   right: 12px;
-  z-index: 1000;
+  z-index: 1001;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.summary {
   padding: 14px 18px;
 }
 h1 {
@@ -104,11 +121,6 @@ h1 {
   font-variant-numeric: tabular-nums;
 }
 .banner {
-  position: absolute;
-  top: 130px; /* debajo del resumen */
-  left: 12px;
-  right: 12px;
-  z-index: 1001;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -176,11 +188,13 @@ h1 {
 }
 
 @media (min-width: 768px) {
-  .summary {
+  .top {
     top: 16px;
     left: 16px;
     right: auto;
-    max-width: 360px;
+    width: 360px;
+  }
+  .summary {
     padding: 16px 20px;
   }
   h1 {
@@ -188,12 +202,6 @@ h1 {
   }
   .subtitle {
     font-size: 15px;
-  }
-  .banner {
-    top: 152px; /* misma columna, debajo del resumen */
-    left: 16px;
-    right: auto;
-    width: 360px;
   }
 }
 </style>

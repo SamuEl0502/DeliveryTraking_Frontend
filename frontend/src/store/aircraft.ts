@@ -2,6 +2,7 @@ import { defineStore } from 'pinia';
 import { computed, ref, shallowRef } from 'vue';
 import { ApiError, fetchAircraft } from '../services/api';
 import type { AircraftState } from '../types/aircraft';
+import type { Airport } from '../types/flightDetails';
 
 export const useAircraftStore = defineStore('aircraft', () => {
   // Normalizado por icao24. shallowRef: Vue no envuelve en proxies los ~4400 objetos,
@@ -11,6 +12,10 @@ export const useAircraftStore = defineStore('aircraft', () => {
   const error = ref<string | null>(null);
   const lastUpdated = ref<number | null>(null); // Date.now() del último éxito
   const selectedIcao24 = ref<string | null>(null);
+  // Número de vuelo que muestra el panel; el mapa lo usa para la etiqueta del avión seguido
+  const selectedLabel = ref<string | null>(null);
+  // Ruta confirmada del avión seguido (la pone el panel); destination null = solo se conoce el despegue
+  const selectedRoute = shallowRef<{ origin: Airport; destination: Airport | null } | null>(null);
 
   const total = computed(() => byIcao.value.size);
   const airborne = computed(() => [...byIcao.value.values()].filter((a) => !a.onGround));
@@ -55,6 +60,8 @@ export const useAircraftStore = defineStore('aircraft', () => {
     error,
     lastUpdated,
     selectedIcao24,
+    selectedLabel,
+    selectedRoute,
     total,
     airborne,
     selected,

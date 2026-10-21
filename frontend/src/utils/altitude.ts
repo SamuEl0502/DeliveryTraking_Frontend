@@ -1,4 +1,4 @@
-// Color por altitud al estilo FlightRadar24. Se usa en los marcadores, la estela y la leyenda
+// Color por altitud al estilo FlightRadar24. Se usa en la estela y la leyenda (los marcadores van de un solo color)
 
 /** Franjas por altitud máxima en metros; la última no tiene tope */
 export const ALT_BANDS: { maxM: number; color: string; label: string }[] = [

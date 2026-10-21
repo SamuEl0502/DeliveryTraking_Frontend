@@ -2,7 +2,7 @@
 import { computed, ref, watch } from 'vue';
 import { useAircraftStore } from '../store/aircraft';
 import type { AircraftState } from '../types/aircraft';
-import { airlineName, searchFlights } from '../utils/flightSearch';
+import { airlineName, flightNumber, searchFlights } from '../utils/flightSearch';
 
 const emit = defineEmits<{ pick: [aircraft: AircraftState] }>();
 
@@ -73,7 +73,7 @@ function onKey(e: KeyboardEvent): void {
         :class="{ active: i === active }"
         @mousedown.prevent="pick(a)"
       >
-        <span class="mono">{{ a.callsign }}</span>
+        <span class="mono">{{ flightNumber(a.callsign!) ?? a.callsign }}</span>
         <span v-if="airlineName(a.callsign!)" class="airline">{{ airlineName(a.callsign!) }}</span>
       </li>
       <li v-if="!results.length" class="empty" role="status">No hay vuelos en el aire con ese número</li>

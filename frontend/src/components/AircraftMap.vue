@@ -7,7 +7,6 @@ import { fetchAircraftTrack } from '../services/api';
 import type { AircraftState, TrackPoint } from '../types/aircraft';
 import { type AircraftClass, classOf } from '../utils/aircraftClass';
 import { ALT_BANDS, altColor } from '../utils/altitude';
-import { greatCircle } from '../utils/greatCircle';
 
 const MAX_MARKERS = 400;
 const MAX_ANIMATED = 60; // además del avión seguido
@@ -68,11 +67,9 @@ function applyState(marker: L.Marker, a: AircraftState, isSelected: boolean, los
   el.classList.toggle('is-selected', isSelected);
   el.classList.toggle('is-ground', a.onGround);
   el.classList.toggle('is-stale', lost);
-  // Color por altitud; la selección y la señal perdida lo tapan desde el CSS
-  el.style.setProperty('--alt-color', altColor(a.alt, a.onGround) ?? '');
 }
 
-// Ruta y estela del avión seguido. Las líneas van en overlayPane, debajo de los marcadores
+// Estela y aeropuertos del avión seguido. Las líneas van en overlayPane, debajo de los marcadores
 const TRACK_REFRESH_MS = 60_000;
 const LIVE_MAX = 500;
 let overlay: L.LayerGroup | null = null;
@@ -148,13 +145,6 @@ function drawOverlay(): void {
 
   const route = store.selectedRoute;
   if (!route) return;
-  const here = { lat: pos.lat, lng: pos.lng };
-  if (route.destination) {
-    L.polyline(greatCircle(route.origin, here), { className: 'route-done', interactive: false }).addTo(overlay);
-    L.polyline(greatCircle(here, route.destination), { className: 'route-left', dashArray: '6 8', interactive: false }).addTo(
-      overlay,
-    );
-  }
   for (const ap of route.destination ? [route.origin, route.destination] : [route.origin]) {
     L.circleMarker([ap.lat, ap.lng], { radius: 5, className: 'route-airport' })
       .bindTooltip(ap.iata ?? ap.icao, { direction: 'top', className: 'airport-label' })
@@ -298,7 +288,7 @@ onUnmounted(() => {
 
 <template>
   <div ref="mapEl" class="map" />
-  <!-- Leyenda: el color no puede ser la única forma de saber la altitud -->
+  <!-- Leyenda de la estela: el color no puede ser la única forma de saber la altitud -->
   <details class="sheet legend">
     <summary>Altitud</summary>
     <ul>

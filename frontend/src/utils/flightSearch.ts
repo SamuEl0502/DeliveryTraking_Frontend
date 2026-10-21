@@ -16,6 +16,21 @@ const AIRLINES: Record<string, [icao: string, name: string]> = {
   SY: ['SCX', 'Sun Country Airlines'],
 };
 const NAME_BY_ICAO = new Map(Object.values(AIRLINES));
+const IATA_BY_ICAO = new Map(Object.entries(AIRLINES).map(([iata, [icao]]) => [icao, iata]));
+
+/**
+ * Número comercial a partir del callsign ICAO (SWA590 → WN590), como lo muestra FlightRadar24.
+ * Usa la aerolínea de adsbdb si coincide con el prefijo y, si no, la tabla. null si no se puede.
+ */
+export function flightNumber(
+  callsign: string,
+  airline?: { icao: string | null; iata: string | null } | null,
+): string | null {
+  const m = /^([A-Z]{3})(\d[A-Z0-9]*)$/.exec(callsign);
+  if (!m) return null; // matrículas (N123AB) y demás se quedan como están
+  const iata = (airline?.icao === m[1] && airline?.iata) || IATA_BY_ICAO.get(m[1]!);
+  return iata ? iata + m[2] : null;
+}
 
 /** Prefijos de callsign que corresponden a lo escrito: tal cual y, si es IATA + número, en ICAO */
 export function callsignPrefixes(input: string): string[] {

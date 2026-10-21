@@ -5,6 +5,7 @@ import { ApiError, fetchAircraftDetails, fetchAircraftSchedule } from '../servic
 import { useAircraftStore } from '../store/aircraft';
 import type { AircraftState } from '../types/aircraft';
 import type { AircraftDetails, Airport, FlightSchedule, FlightTimes } from '../types/flightDetails';
+import { flightNumber } from '../utils/flightSearch';
 
 const props = defineProps<{ aircraft: AircraftState }>();
 const emit = defineEmits<{ close: [] }>();
@@ -112,22 +113,19 @@ const progress = computed(() =>
 );
 const info = computed(() => details.value?.aircraft ?? null);
 
-const callsign = computed(
-  () =>
-    route.value?.flightNumber ??
+// Cabecera y etiqueta del mapa: número comercial como FR24 (WN590); la aerolínea de adsbdb
+// sirve aunque la ruta no esté verificada. Si no, el callsign; si no, el icao24
+const callsign = computed(() => {
+  const cs = props.aircraft.callsign?.trim();
+  return (
     schedule.value?.flightNumber ??
-    (props.aircraft.callsign?.trim() || 'Sin callsign'),
-);
-// Etiqueta del mapa: número comercial si ya llegó; si no, callsign; si no, icao24
+    route.value?.flightNumber ??
+    (cs ? flightNumber(cs, route.value?.airline) : null) ??
+    (cs || props.aircraft.icao24.toUpperCase())
+  );
+});
 const store = useAircraftStore();
-watch(
-  () =>
-    schedule.value?.flightNumber ??
-    route.value?.flightNumber ??
-    (props.aircraft.callsign?.trim() || props.aircraft.icao24.toUpperCase()),
-  (label) => (store.selectedLabel = label),
-  { immediate: true },
-);
+watch(callsign, (label) => (store.selectedLabel = label), { immediate: true });
 // Despegue real (OpenSky) solo cuando no hay ruta confirmada: reemplaza al "Ruta no verificada"
 const departure = computed(() =>
   schedule.value?.route || route.value?.verified ? null : (details.value?.departure ?? null),
@@ -242,7 +240,7 @@ const num = new Intl.NumberFormat('es');
             <span>{{ num.format(Math.round(progress.flownKm)) }} km recorridos</span>
             <span>{{ num.format(Math.round(progress.remainingKm)) }} km restantes</span>
           </p>
-          <p v-if="eta" class="eta">Llega en ~{{ eta }}</p>
+          <p v-if="eta" class="eta">Llega en {{ eta }}</p>
         </div>
       </section>
       <!-- Sin ruta confirmada pero OpenSky vio el despegue: el origen real, sin inventar destino -->

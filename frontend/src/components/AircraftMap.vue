@@ -4,6 +4,7 @@ import { onMounted, onUnmounted, ref, watch } from 'vue';
 import { extrapolate, isSignalLost, useSmoothedPosition } from '../composables/useSmoothedPosition';
 import { useAircraftStore } from '../store/aircraft';
 import type { AircraftState } from '../types/aircraft';
+import { type AircraftClass, classOf } from '../utils/aircraftClass';
 
 const MAX_MARKERS = 400;
 const MAX_ANIMATED = 60; // además del avión seguido
@@ -24,13 +25,37 @@ const markers = new Map<string, L.Marker>();
 // Cada fotograma, el composable entrega la posición suavizada y aquí se mueve el marcador
 const smooth = useSmoothedPosition((id, pos) => markers.get(id)?.setLatLng([pos.lat, pos.lng]));
 
-// Un único icono compartido: avión SVG apuntando al norte; se rota con CSS según el rumbo
-const planeIcon = L.divIcon({
-  className: 'plane-marker',
-  html: '<div class="plane"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z"/></svg></div>',
-  iconSize: [40, 40], // área de toque; el SVG visible es de 22 px
-  iconAnchor: [20, 20],
-});
+// Siluetas propias vistas desde arriba, apuntando al norte; se rotan con CSS según el rumbo.
+// El tamaño de cada clase está en main.css (.c-light, .c-jumbo...)
+const AIRLINER = 'M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z';
+const WIDE = 'M12 1c-.9 0-1.6.8-1.6 1.8V9L1 14v2.2l9.4-2.6V19l-2.6 2v1.5l3.2-1 3.2 1V21l-2.6-2v-5.4l9.4 2.6V14l-9.4-5V2.8C13.6 1.8 12.9 1 12 1z';
+const SHAPES: Record<AircraftClass | 'generic', string> = {
+  generic: AIRLINER,
+  narrow: AIRLINER,
+  wide: WIDE,
+  // Ancho como el wide, con cuatro motores
+  jumbo: `${WIDE}M6.2 11.6h1.6v2.4H6.2zM16.2 11.6h1.6v2.4h-1.6zM3 13.4h1.4v2H3zM19.6 13.4H21v2h-1.4z`,
+  regional: 'M12 2c-.7 0-1.2.6-1.2 1.4V10L2 12.5v1.8l8.8-1.2V19l-2.3 1.6V22l3.5-.8 3.5.8v-1.4L13.2 19v-5.9l8.8 1.2v-1.8L13.2 10V3.4C13.2 2.6 12.7 2 12 2z',
+  business: 'M12 2c-.6 0-1 .7-1 1.6V11l-6 4v1.4l6-1.6V19l-2 1.4V22l3-.8 3 .8v-1.6L13 19v-4.2l6 1.6V15l-6-4V3.6C13 2.7 12.6 2 12 2z',
+  // Ala alta y recta de avioneta
+  light: 'M11 3h2v5h9v2.2h-9V18h3.5v2h-9v-2H11v-7.8H2V8h9z',
+  // Cabina y cola más el rotor en X
+  heli: 'M12 4a1.8 1.8 0 0 1 1.8 1.8V11a1.8 1.8 0 0 1-1 1.6V20h2v1.4H9.2V20h2v-7.4a1.8 1.8 0 0 1-1-1.6V5.8A1.8 1.8 0 0 1 12 4zM3.6 2.2l18.2 18.2-1.4 1.4L2.2 3.6zM20.4 2.2l1.4 1.4L3.6 21.8l-1.4-1.4z',
+};
+
+// Un divIcon por clase, creado una vez: 400 marcadores comparten 8 iconos. Los estados son clases CSS
+const icons = Object.fromEntries(
+  Object.entries(SHAPES).map(([cls, d]) => [
+    cls,
+    L.divIcon({
+      className: 'plane-marker',
+      html: `<div class="plane c-${cls}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${d}"/></svg></div>`,
+      iconSize: [40, 40], // área de toque; el avión visible es más pequeño
+      iconAnchor: [20, 20],
+    }),
+  ]),
+) as Record<AircraftClass | 'generic', L.DivIcon>;
+const iconFor = (a: AircraftState) => icons[classOf(a.type) ?? 'generic'];
 
 function applyState(marker: L.Marker, a: AircraftState, isSelected: boolean, lost: boolean): void {
   const el = marker.getElement();
@@ -90,12 +115,15 @@ function render(): void {
     keep.add(id);
 
     let marker = markers.get(id);
+    const icon = iconFor(a);
     if (!marker) {
       const start = extrapolate(a, now);
-      marker = L.marker([start.lat, start.lng], { icon: planeIcon, keyboard: false });
+      marker = L.marker([start.lat, start.lng], { icon, keyboard: false });
       marker.on('click', () => store.select(id));
       marker.addTo(layer);
       markers.set(id, marker);
+    } else if (marker.options.icon !== icon) {
+      marker.setIcon(icon); // el tipo llegó o cambió: raro, solo entonces se rehace el elemento
     }
 
     // El seguido siempre pasa por el composable (así también se suaviza su corrección)
@@ -130,6 +158,10 @@ onMounted(() => {
     maxZoom: 18,
     attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
   }).addTo(map);
+  // Mictronics publica la base de tipos con licencia ODC-By, que exige citar la fuente
+  map.attributionControl.addAttribution(
+    'Tipos de aeronave: <a href="https://www.mictronics.de/aircraft-database/">Mictronics</a>',
+  );
   layer = L.layerGroup().addTo(map);
 
   map.on('moveend', render); // también se dispara al hacer zoom

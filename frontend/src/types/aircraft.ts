@@ -13,6 +13,8 @@ export interface AircraftState {
   onGround: boolean;
   /** Momento de la posición, Unix en segundos */
   ts: number;
+  /** Tipo ICAO del avión (B738, A321, C172...); null si no está en la base de aeronaves */
+  type: string | null;
 }
 
 export interface AircraftSnapshot {

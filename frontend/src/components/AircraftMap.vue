@@ -5,7 +5,7 @@ import { extrapolate, isSignalLost, useSmoothedPosition } from '../composables/u
 import { useAircraftStore } from '../store/aircraft';
 import { fetchAircraftTrack } from '../services/api';
 import type { AircraftState, TrackPoint } from '../types/aircraft';
-import { type AircraftClass, classOf } from '../utils/aircraftClass';
+import { type AircraftFamily, familyOf, sizePx } from '../utils/aircraftFamily';
 import { ALT_BANDS, altColor } from '../utils/altitude';
 
 const MAX_MARKERS = 400;
@@ -27,37 +27,102 @@ const markers = new Map<string, L.Marker>();
 // Cada fotograma, el composable entrega la posición suavizada y aquí se mueve el marcador
 const smooth = useSmoothedPosition((id, pos) => markers.get(id)?.setLatLng([pos.lat, pos.lng]));
 
-// Siluetas propias vistas desde arriba, apuntando al norte; se rotan con CSS según el rumbo.
-// El tamaño de cada clase está en main.css (.c-light, .c-jumbo...)
-const AIRLINER = 'M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z';
-const WIDE = 'M12 1c-.9 0-1.6.8-1.6 1.8V9L1 14v2.2l9.4-2.6V19l-2.6 2v1.5l3.2-1 3.2 1V21l-2.6-2v-5.4l9.4 2.6V14l-9.4-5V2.8C13.6 1.8 12.9 1 12 1z';
-const SHAPES: Record<AircraftClass | 'generic', string> = {
-  generic: AIRLINER,
-  narrow: AIRLINER,
-  wide: WIDE,
-  // Ancho como el wide, con cuatro motores
-  jumbo: `${WIDE}M6.2 11.6h1.6v2.4H6.2zM16.2 11.6h1.6v2.4h-1.6zM3 13.4h1.4v2H3zM19.6 13.4H21v2h-1.4z`,
-  regional: 'M12 2c-.7 0-1.2.6-1.2 1.4V10L2 12.5v1.8l8.8-1.2V19l-2.3 1.6V22l3.5-.8 3.5.8v-1.4L13.2 19v-5.9l8.8 1.2v-1.8L13.2 10V3.4C13.2 2.6 12.7 2 12 2z',
-  business: 'M12 2c-.6 0-1 .7-1 1.6V11l-6 4v1.4l6-1.6V19l-2 1.4V22l3-.8 3 .8v-1.6L13 19v-4.2l6 1.6V15l-6-4V3.6C13 2.7 12.6 2 12 2z',
-  // Ala alta y recta de avioneta
-  light: 'M11 3h2v5h9v2.2h-9V18h3.5v2h-9v-2H11v-7.8H2V8h9z',
-  // Cabina y cola más el rotor en X
-  heli: 'M12 4a1.8 1.8 0 0 1 1.8 1.8V11a1.8 1.8 0 0 1-1 1.6V20h2v1.4H9.2V20h2v-7.4a1.8 1.8 0 0 1-1-1.6V5.8A1.8 1.8 0 0 1 12 4zM3.6 2.2l18.2 18.2-1.4 1.4L2.2 3.6zM20.4 2.2l1.4 1.4L3.6 21.8l-1.4-1.4z',
+// Siluetas propias vistas desde arriba, con la nariz al norte, en un viewBox de 24 (no copiadas de
+// tar1090, dump1090-fa ni FlightRadar24). Proporciones de envergadura y largo reales; se rotan con CSS según el rumbo.
+type Pt = [x: number, y: number];
+/** Medio contorno derecho (x ≥ 12) de la nariz a la cola; se refleja en el eje para cerrar la silueta */
+const sym = (half: Pt[]) =>
+  `M${[...half, ...[...half].reverse().map(([x, y]): Pt => [24 - x, y])].map(([x, y]) => `${x} ${y}`).join('L')}Z`;
+/** Par de motores o góndolas: un rectángulo a cada lado del eje, en el mismo sentido para que se sumen al relleno */
+const pods = (x: number, y: number, w: number, h: number) =>
+  `M${x} ${y}h${w}v${h}h${-w}zM${24 - x - w} ${y}h${w}v${h}h${-w}z`;
+
+const SHAPES: Record<AircraftFamily, string> = {
+  generic: 'M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5z',
+  // Ala alta y recta, adelantada
+  'cessna-high': sym([[12, 3.7], [12.9, 4.3], [13, 5.6], [13, 7], [23, 7], [23, 9.6], [13, 9.6], [12.8, 17], [16, 17.4], [16, 19.8], [12.3, 20.3]]),
+  // Ala baja con estrechamiento hacia la punta
+  'piston-low': sym([[12, 4.5], [12.9, 5.1], [13.1, 6.6], [13.1, 9], [23, 9.6], [23, 11.4], [13.1, 12], [12.7, 17.4], [16, 17.7], [16, 19.2], [12.3, 19.5]]),
+  'piston-twin':
+    sym([[12, 4.2], [12.8, 4.9], [13, 6.2], [13, 9.8], [23, 10.2], [23, 11.7], [13, 12], [13, 17.2], [16.6, 17.8], [16.6, 19.6], [12.4, 19.9]]) +
+    pods(15, 8.3, 1.5, 4.6),
+  // Nariz larga
+  'turboprop-single': sym([[12, 2.3], [12.8, 3.1], [13.1, 4.8], [13.1, 9.8], [23, 10.6], [23, 11.9], [13.1, 13.2], [13.1, 18.8], [16.8, 19.8], [16.8, 21.4], [12.4, 21.7]]),
+  // Bimotor turbohélice con cola en T
+  kingair:
+    sym([[12, 3.2], [12.8, 3.9], [13, 5.2], [13, 9.4], [23, 9.9], [23, 11.4], [13, 11.8], [13, 18.6], [16.4, 19.9], [16.4, 20.8], [12.3, 20.8]]) +
+    pods(14.8, 7.6, 1.5, 5.2),
+  // Motores atrás, junto al fuselaje, y cola en T
+  'bizjet-light':
+    sym([[12, 1.5], [12.8, 2.4], [13, 4], [13, 10], [23, 12.6], [23, 13.6], [13, 13.6], [13, 20.6], [16.4, 21.6], [16.4, 22.5], [12.3, 22.5]]) +
+    pods(13.2, 15.2, 1.4, 3.2),
+  'bizjet-large':
+    sym([[12, 1], [12.9, 1.9], [13.2, 3.6], [13.2, 9.4], [23, 13.8], [23, 14.8], [13.2, 13.6], [13.2, 20.4], [16.8, 21.8], [16.8, 22.8], [12.3, 23]]) +
+    pods(13.4, 15.2, 1.6, 3.4),
+  // Fuselaje largo y fino, ala atrasada, motores atrás y cola en T
+  'regional-rear':
+    sym([[12, 1], [12.7, 1.8], [13, 3.3], [13, 10.5], [19.6, 14.6], [19.6, 15.4], [13, 13.6], [13, 20.2], [16, 21.8], [16, 22.7], [12.3, 23]]) +
+    pods(13.2, 16.3, 1.4, 3.4),
+  // De aquí en adelante, motores bajo el ala
+  ejet:
+    sym([[12, 1], [12.8, 1.8], [13.1, 3.3], [13.1, 9.6], [21, 14.3], [21, 15.2], [13.1, 13.2], [13.1, 19], [16.4, 21.4], [16.4, 22.4], [12.3, 23]]) +
+    pods(14.6, 9.6, 1.3, 2.4),
+  a220:
+    sym([[12, 1], [12.7, 1.8], [13, 3.2], [13, 9.2], [22, 14.4], [22, 15.3], [13, 13], [13, 19.2], [16.2, 21.5], [16.2, 22.4], [12.3, 23]]) +
+    pods(14.7, 9.2, 1.6, 2.8),
+  a320:
+    sym([[12, 1], [12.9, 1.8], [13.2, 3.2], [13.2, 9], [22.5, 14.2], [22.5, 15.2], [13.2, 13], [13.2, 19], [16.6, 21.4], [16.6, 22.4], [12.3, 23]]) +
+    pods(15, 9.3, 1.4, 2.6),
+  b737:
+    sym([[12, 1], [12.8, 1.7], [13.1, 3], [13.1, 9.5], [22, 14.3], [22, 15.2], [13.1, 13.2], [13.1, 19.3], [16.3, 21.6], [16.3, 22.5], [12.3, 23]]) +
+    pods(14.5, 9.2, 1.4, 2.4),
+  'b757-767':
+    sym([[12, 1], [13, 1.8], [13.4, 3.2], [13.4, 9.2], [21.5, 14.6], [21.5, 15.5], [13.4, 13.4], [13.4, 19.3], [17, 21.5], [17, 22.5], [12.3, 23]]) +
+    pods(15.3, 9.9, 1.5, 2.8),
+  'b777-787':
+    sym([[12, 1], [13.2, 1.9], [13.6, 3.4], [13.6, 8.8], [21.6, 14.6], [21.6, 15.4], [13.6, 13.2], [13.6, 19.2], [17.4, 21.5], [17.4, 22.5], [12.3, 23]]) +
+    pods(15.5, 9.4, 1.9, 3.2),
+  'a330-a350':
+    sym([[12, 1], [13.1, 1.9], [13.5, 3.4], [13.5, 8.6], [22.7, 14.4], [22.7, 15.3], [13.5, 13], [13.5, 19.2], [17.3, 21.5], [17.3, 22.5], [12.3, 23]]) +
+    pods(15.6, 9.4, 1.8, 3),
+  // Cuatro motores
+  jumbo:
+    sym([[12, 1], [13.3, 2], [13.7, 3.6], [13.7, 8.6], [22, 14.6], [22, 15.5], [13.7, 13.2], [13.7, 19.2], [17.6, 21.5], [17.6, 22.5], [12.3, 23]]) +
+    pods(15.2, 9.4, 1.6, 2.8) +
+    pods(18.4, 11.4, 1.5, 2.6),
+  // Ala alta y recta, góndolas de hélice que sobresalen por delante, cola en T
+  'turboprop-regional':
+    sym([[12, 1], [12.8, 1.8], [13.1, 3.3], [13.1, 7.4], [23, 7.8], [23, 9.6], [13.1, 10], [13.1, 19.8], [16.5, 21.6], [16.5, 22.6], [12.3, 23]]) +
+    pods(15.4, 5.6, 1.4, 5.6),
+  // Cabina, botalón de cola y dos palas en X; el disco del rotor va aparte (ROTOR), semitransparente
+  heli:
+    sym([[12, 3.6], [13.6, 4.2], [14.2, 6.4], [14, 11.4], [12.6, 13.6], [12.6, 19.4], [14.6, 19.6], [14.6, 20.6], [12.6, 20.8], [12.5, 22.6], [12.2, 22.8]]) +
+    'M6.73 2.55L18.05 13.87L17.27 14.65L5.95 3.33ZM18.05 3.33L6.73 14.65L5.95 13.87L17.27 2.55Z',
+  // Cabina en tándem y ala con estrechamiento
+  'military-trainer': sym([[12, 1], [12.9, 2], [13.1, 4], [13.2, 9.4], [23, 11.2], [23, 12.8], [13.2, 14], [12.8, 19.6], [16.6, 20.6], [16.6, 22.4], [12.3, 23]]),
 };
 
-// Un divIcon por clase, creado una vez: 400 marcadores comparten 8 iconos. Los estados son clases CSS
-const icons = Object.fromEntries(
-  Object.entries(SHAPES).map(([cls, d]) => [
-    cls,
-    L.divIcon({
+const ROTOR = '<circle class="rotor" cx="12" cy="8.6" r="8.2"/>';
+
+// Un divIcon por familia y tamaño, creado la primera vez que hace falta: los 400 marcadores comparten
+// unas decenas. El tamaño va en --size; los estados son clases CSS
+const icons = new Map<string, L.DivIcon>();
+function iconFor(a: AircraftState): L.DivIcon {
+  const family = familyOf(a.type);
+  const px = sizePx(a.type, family);
+  const key = `${family}-${px}`;
+  let icon = icons.get(key);
+  if (!icon) {
+    icon = L.divIcon({
       className: 'plane-marker',
-      html: `<div class="plane c-${cls}"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="${d}"/></svg></div>`,
-      iconSize: [40, 40], // área de toque; el avión visible es más pequeño
+      html: `<div class="plane" style="--size:${px}px"><svg viewBox="0 0 24 24" aria-hidden="true">${family === 'heli' ? ROTOR : ''}<path d="${SHAPES[family]}"/></svg></div>`,
+      iconSize: [40, 40], // área de toque; el avión visible puede ser más pequeño o más grande
       iconAnchor: [20, 20],
-    }),
-  ]),
-) as Record<AircraftClass | 'generic', L.DivIcon>;
-const iconFor = (a: AircraftState) => icons[classOf(a.type) ?? 'generic'];
+    });
+    icons.set(key, icon);
+  }
+  return icon;
+}
 
 function applyState(marker: L.Marker, a: AircraftState, isSelected: boolean, lost: boolean): void {
   const el = marker.getElement();
@@ -208,7 +273,7 @@ function render(): void {
       marker.addTo(layer);
       markers.set(id, marker);
     } else if (marker.options.icon !== icon) {
-      marker.setIcon(icon); // el tipo llegó o cambió: raro, solo entonces se rehace el elemento
+      marker.setIcon(icon); // el tipo llegó o cambió de familia: raro, solo entonces se rehace el elemento
     }
 
     // El seguido siempre pasa por el composable (así también se suaviza su corrección)
@@ -249,6 +314,13 @@ onMounted(() => {
     'Tipos de aeronave: <a href="https://www.mictronics.de/aircraft-database/">Mictronics</a>',
   );
   overlay = L.layerGroup().addTo(map);
+  // Iconos más grandes de cerca, para que se note la forma
+  const setZoomScale = () => {
+    const z = map!.getZoom();
+    mapEl.value?.style.setProperty('--zoom-scale', String(z <= 5 ? 0.85 : z >= 8 ? 1.3 : 1));
+  };
+  map.on('zoomend', setZoomScale);
+  setZoomScale();
   layer = L.layerGroup().addTo(map);
 
   map.on('moveend', render); // también se dispara al hacer zoom

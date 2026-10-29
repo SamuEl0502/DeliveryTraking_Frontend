@@ -58,10 +58,18 @@ body {
   cursor: pointer;
 }
 .plane-marker .plane {
-  width: 22px;
-  height: 22px;
+  --size: 22px;
+  width: var(--size);
+  height: var(--size);
   transition: transform 0.4s ease;
 }
+/* Tamaño según la clase del avión: avionetas pequeñas, jumbos grandes */
+.plane.c-light { --size: 16px; }
+.plane.c-heli,
+.plane.c-business { --size: 18px; }
+.plane.c-regional { --size: 20px; }
+.plane.c-wide { --size: 26px; }
+.plane.c-jumbo { --size: 28px; }
 .plane-marker svg {
   width: 100%;
   height: 100%;
@@ -78,8 +86,8 @@ body {
   z-index: 10000 !important;
 }
 .plane-marker.is-selected .plane {
-  width: 30px;
-  height: 30px;
+  width: calc(var(--size) * 1.35);
+  height: calc(var(--size) * 1.35);
 }
 .plane-marker.is-selected svg {
   fill: var(--plane-selected);
@@ -108,4 +116,31 @@ body {
   overflow: hidden;
   box-shadow: var(--shadow) !important;
   border: 0 !important;
+}
+
+/* Aeropuertos de la ruta del avión seguido */
+.route-airport {
+  stroke: #fff;
+  stroke-width: 2;
+  fill: var(--plane-selected);
+  fill-opacity: 1;
+}
+.leaflet-tooltip.airport-label {
+  padding: 1px 6px;
+  font: 700 11px ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+}
+
+/* Etiqueta con el número de vuelo encima del avión seguido (estilo FlightRadar24) */
+.leaflet-tooltip.flight-label {
+  padding: 2px 8px;
+  border: 0;
+  border-radius: 999px;
+  background: var(--plane-selected);
+  color: #fff;
+  font: 700 12px ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  box-shadow: var(--shadow);
+  pointer-events: none;
+}
+.leaflet-tooltip-top.flight-label::before {
+  border-top-color: var(--plane-selected);
 }

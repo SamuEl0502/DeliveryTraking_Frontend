@@ -17,6 +17,9 @@ export interface AircraftInfo {
   owner: string | null;
   photoUrl: string | null;
   photoThumbnailUrl: string | null;
+  /** Página de la foto en Planespotters; el frontend debe enlazarla junto al fotógrafo */
+  photoLink: string | null;
+  photographer: string | null;
 }
 
 export interface FlightRoute {
@@ -45,6 +48,8 @@ export interface AircraftDetails {
   aircraft: AircraftInfo | null;
   route: FlightRoute | null;
   progress: FlightProgress | null;
+  /** Aeropuerto del que despegó según el recorrido de OpenSky; null si OpenSky no vio el despegue */
+  departure: Airport | null;
 }
 
 export interface FlightTimes {

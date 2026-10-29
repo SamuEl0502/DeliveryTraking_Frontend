@@ -1,5 +1,5 @@
 import axios, { AxiosError } from 'axios';
-import type { AircraftListResponse } from '../types/aircraft';
+import type { AircraftListResponse, FlightTrack } from '../types/aircraft';
 import type { AircraftDetails, FlightSchedule } from '../types/flightDetails';
 
 /** Error normalizado: mensaje para la UI, código HTTP y `code` del backend si existen */
@@ -53,6 +53,12 @@ export async function fetchAircraft(): Promise<AircraftListResponse> {
 /** Avión, ruta y progreso. Una vez por selección: el backend lo cachea 6 h */
 export async function fetchAircraftDetails(icao24: string, signal?: AbortSignal): Promise<AircraftDetails> {
   const { data } = await api.get<AircraftDetails>(`/api/aircraft/${icao24}/details`, { signal });
+  return data;
+}
+
+/** Recorrido desde el despegue. 4 créditos de OpenSky (caché de 1 min en el backend); 404 TRACK_NOT_FOUND si no hay */
+export async function fetchAircraftTrack(icao24: string, signal?: AbortSignal): Promise<FlightTrack> {
+  const { data } = await api.get<FlightTrack>(`/api/aircraft/${icao24}/track`, { signal });
   return data;
 }
 

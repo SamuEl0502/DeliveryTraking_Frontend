@@ -2,8 +2,10 @@
 import { computed, onMounted, onUnmounted, ref, shallowRef, watch } from 'vue';
 import { SIGNAL_LOST_S } from '../composables/useSmoothedPosition';
 import { ApiError, fetchAircraftDetails, fetchAircraftSchedule } from '../services/api';
+import { useAircraftStore } from '../store/aircraft';
 import type { AircraftState } from '../types/aircraft';
 import type { AircraftDetails, Airport, FlightSchedule, FlightTimes } from '../types/flightDetails';
+import { flightNumber } from '../utils/flightSearch';
 
 const props = defineProps<{ aircraft: AircraftState }>();
 const emit = defineEmits<{ close: [] }>();
@@ -111,12 +113,41 @@ const progress = computed(() =>
 );
 const info = computed(() => details.value?.aircraft ?? null);
 
-const callsign = computed(
-  () =>
-    route.value?.flightNumber ??
+// Cabecera y etiqueta del mapa: número comercial como FR24 (WN590); la aerolínea de adsbdb
+// sirve aunque la ruta no esté verificada. Si no, el callsign; si no, el icao24
+const callsign = computed(() => {
+  const cs = props.aircraft.callsign?.trim();
+  return (
     schedule.value?.flightNumber ??
-    (props.aircraft.callsign?.trim() || 'Sin callsign'),
+    route.value?.flightNumber ??
+    (cs ? flightNumber(cs, route.value?.airline) : null) ??
+    (cs || props.aircraft.icao24.toUpperCase())
+  );
+});
+const store = useAircraftStore();
+watch(callsign, (label) => (store.selectedLabel = label), { immediate: true });
+// Despegue real (OpenSky) solo cuando no hay ruta confirmada: reemplaza al "Ruta no verificada"
+const departure = computed(() =>
+  schedule.value?.route || route.value?.verified ? null : (details.value?.departure ?? null),
 );
+
+// Mapa: la ruta de /schedule o la verificada de /details; si no, solo el punto del despegue
+watch(
+  [route, departure],
+  ([r, dep]) =>
+    (store.selectedRoute =
+      r && (schedule.value?.route || r.verified)
+        ? { origin: r.origin, destination: r.destination }
+        : dep
+          ? { origin: dep, destination: null }
+          : null),
+  { immediate: true },
+);
+onUnmounted(() => {
+  store.selectedLabel = null;
+  store.selectedRoute = null;
+});
+
 const airline = computed(() => route.value?.airline?.name ?? schedule.value?.airline ?? null);
 const airportCode = (a: Airport) => a.iata ?? a.icao;
 const airportCity = (a: Airport) => a.city ?? a.name;
@@ -180,7 +211,7 @@ const num = new Intl.NumberFormat('es');
     <p v-if="detailsLoading" class="note">Cargando ruta…</p>
     <template v-else>
       <p v-if="detailsError && !route" class="note is-warn">No se pudo cargar la ruta. {{ detailsError }}</p>
-      <section v-if="route" class="route" aria-label="Ruta">
+      <section v-if="route && !departure" class="route" aria-label="Ruta">
         <div class="airports">
           <div>
             <span class="iata mono">{{ airportCode(route.origin) }}</span>
@@ -197,7 +228,7 @@ const num = new Intl.NumberFormat('es');
           <div
             class="bar"
             role="progressbar"
-            aria-label="Progreso del vuelo"
+            :aria-label="`Progreso del vuelo: ${Math.round(progress.percent)} %`"
             :aria-valuenow="Math.round(progress.percent)"
             aria-valuemin="0"
             aria-valuemax="100"
@@ -208,20 +239,44 @@ const num = new Intl.NumberFormat('es');
             <span>{{ num.format(Math.round(progress.flownKm)) }} km recorridos</span>
             <span>{{ num.format(Math.round(progress.remainingKm)) }} km restantes</span>
           </p>
-          <p v-if="eta" class="eta">Llega en ~{{ eta }}</p>
+          <p v-if="eta" class="eta">Llega en {{ eta }}</p>
+        </div>
+      </section>
+      <!-- Sin ruta confirmada pero OpenSky vio el despegue: el origen real, sin inventar destino -->
+      <section v-else-if="departure" class="route" aria-label="Despegue">
+        <div class="airports">
+          <div>
+            <span class="iata mono">{{ airportCode(departure) }}</span>
+            <span class="city">Despegó de {{ airportCity(departure) }}</span>
+          </div>
+          <span class="arrow" aria-hidden="true">→</span>
+          <div class="end">
+            <span class="iata mono">—</span>
+            <span class="city">Destino desconocido</span>
+          </div>
         </div>
       </section>
       <p v-else-if="details" class="note">Ruta no disponible</p>
 
       <section v-if="info" class="plane" aria-label="Avión">
-        <component
-          :is="info.photoUrl ? 'a' : 'div'"
-          v-if="info.photoThumbnailUrl"
-          class="photo"
-          v-bind="info.photoUrl ? { href: info.photoUrl, target: '_blank', rel: 'noopener' } : {}"
-        >
-          <img :src="info.photoThumbnailUrl" :alt="`Foto del avión ${info.registration ?? ''}`" loading="lazy" />
-        </component>
+        <figure v-if="info.photoUrl ?? info.photoThumbnailUrl" class="photo">
+          <component
+            :is="info.photoLink ? 'a' : 'div'"
+            v-bind="info.photoLink ? { href: info.photoLink, target: '_blank', rel: 'noopener' } : {}"
+          >
+            <img
+              :src="info.photoUrl ?? info.photoThumbnailUrl ?? undefined"
+              :alt="`Foto del avión ${[info.registration, info.model].filter(Boolean).join(' ')}`"
+              loading="lazy"
+            />
+          </component>
+          <!-- Planespotters exige el crédito del fotógrafo con enlace a la foto -->
+          <figcaption v-if="info.photographer" class="credit">
+            Foto:
+            <a v-if="info.photoLink" :href="info.photoLink" target="_blank" rel="noopener">{{ info.photographer }} / Planespotters</a>
+            <template v-else>{{ info.photographer }} / Planespotters</template>
+          </figcaption>
+        </figure>
         <div>
           <p class="model">{{ info.model ?? info.icaoType ?? 'Modelo desconocido' }}</p>
           <p class="reg">
@@ -450,21 +505,27 @@ const num = new Intl.NumberFormat('es');
   font-weight: 700;
 }
 .plane {
-  display: flex;
-  align-items: center;
-  gap: 12px;
   margin: 0 0 16px;
 }
+/* Foto arriba y a todo el ancho del panel, 3:2 como la de Planespotters (420×280) */
 .photo {
-  flex: none;
+  margin: 0 0 10px;
 }
 .photo img {
   display: block;
-  width: 96px;
-  height: 64px;
+  width: 100%;
+  aspect-ratio: 3 / 2;
   object-fit: cover;
-  border-radius: 10px;
+  border-radius: 14px;
   background: var(--surface-2);
+}
+.credit {
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--text-2);
+}
+.credit a {
+  color: inherit;
 }
 .model {
   margin: 0;

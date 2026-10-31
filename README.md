@@ -110,6 +110,7 @@ frontend/
 - ETA dinámico del envío en el mapa.
 
 - ```text
-Fecha de actualización: Octubre 2026
+Fecha de actualización: 31 de octubre de 2026
 Estado del módulo: Fase 1 (Completado y Operativo)
 Entorno de ejecución: Node.js (LTS) + Express 5 + TypeScript
+Últimas fusiones: feature/iconos-modelo, feature/ajustes-revision, docs/reglas-git (28 oct)

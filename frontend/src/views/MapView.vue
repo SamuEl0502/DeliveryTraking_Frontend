@@ -50,6 +50,14 @@ const firstLoad = computed(() => store.loading && !store.hasData);
         <span v-else>Cargando…</span>
       </p>
       <FlightSearch v-if="store.hasData" @pick="followFlight" />
+      <button
+        v-if="store.hasData"
+        class="filter-btn"
+        :class="{ active: store.airline === 'FDX' }"
+        @click="store.toggleAirline('FDX')"
+      >
+        {{ store.airline === 'FDX' ? '✓ FedEx' : 'FedEx' }}
+      </button>
     </section>
 
     <div v-if="store.error" class="sheet banner" role="alert">
@@ -185,6 +193,25 @@ h1 {
   to {
     transform: rotate(360deg);
   }
+}
+.filter-btn {
+  padding: 8px 14px;
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  background: var(--surface);
+  color: var(--text);
+  font: 13px inherit;
+  font-weight: 500;
+  cursor: pointer;
+  transition: background 0.2s, border-color 0.2s;
+}
+.filter-btn:hover {
+  background: var(--surface-2);
+}
+.filter-btn.active {
+  background: var(--green);
+  color: #fff;
+  border-color: var(--green);
 }
 
 @media (min-width: 768px) {

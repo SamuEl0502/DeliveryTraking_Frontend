@@ -16,6 +16,8 @@ export const useAircraftStore = defineStore('aircraft', () => {
   const selectedLabel = ref<string | null>(null);
   // Ruta confirmada del avión seguido (la pone el panel); destination null = solo se conoce el despegue
   const selectedRoute = shallowRef<{ origin: Airport; destination: Airport | null } | null>(null);
+  // Filtro de aerolínea: 'FDX' para FedEx, null para todos
+  const airline = ref<string | null>(null);
 
   const total = computed(() => byIcao.value.size);
   const airborne = computed(() => [...byIcao.value.values()].filter((a) => !a.onGround));
@@ -28,7 +30,7 @@ export const useAircraftStore = defineStore('aircraft', () => {
     if (loading.value) return; // evita peticiones solapadas
     loading.value = true;
     try {
-      const { aircraft } = await fetchAircraft();
+      const { aircraft } = await fetchAircraft(airline.value ?? undefined);
       const next = new Map<string, AircraftState>();
       for (const a of aircraft) next.set(a.icao24, a);
       // Si el avión seguido no vino en este lote, se conserva su último estado conocido
@@ -44,6 +46,10 @@ export const useAircraftStore = defineStore('aircraft', () => {
     } finally {
       loading.value = false;
     }
+  }
+
+  function toggleAirline(code: string | null): void {
+    airline.value = airline.value === code ? null : code;
   }
 
   function select(icao24: string): void {
@@ -62,6 +68,7 @@ export const useAircraftStore = defineStore('aircraft', () => {
     selectedIcao24,
     selectedLabel,
     selectedRoute,
+    airline,
     total,
     airborne,
     selected,
@@ -69,5 +76,6 @@ export const useAircraftStore = defineStore('aircraft', () => {
     loadAircraft,
     select,
     clearSelection,
+    toggleAirline,
   };
 });

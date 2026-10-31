@@ -45,8 +45,8 @@ api.interceptors.response.use(
   },
 );
 
-export async function fetchAircraft(): Promise<AircraftListResponse> {
-  const { data } = await api.get<AircraftListResponse>('/api/aircraft');
+export async function fetchAircraft(airline?: string): Promise<AircraftListResponse> {
+  const { data } = await api.get<AircraftListResponse>('/api/aircraft', { params: airline ? { airline } : {} });
   return data;
 }
 

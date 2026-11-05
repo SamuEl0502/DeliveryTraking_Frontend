@@ -50,6 +50,7 @@ export const useAircraftStore = defineStore('aircraft', () => {
 
   function toggleAirline(code: string | null): void {
     airline.value = airline.value === code ? null : code;
+    void loadAircraft();
   }
 
   function select(icao24: string): void {

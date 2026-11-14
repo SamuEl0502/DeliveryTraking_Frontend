@@ -42,6 +42,13 @@ export const router = createRouter({
       component: () => import('../views/AccountView.vue'),
       meta: { requiresAuth: true }, // su enlace es el nombre del usuario en la cabecera
     },
+    // Staff: vuelos
+    {
+      path: '/staff/vuelos',
+      name: 'staff-flights',
+      component: () => import('../views/staff/StaffFlightsView.vue'),
+      meta: { requiresAuth: true, roles: ['STAFF', 'ADMIN'], menu: 'Vuelos' },
+    },
     // Las rutas nuevas van antes del comodín
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],

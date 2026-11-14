@@ -26,7 +26,7 @@ async function onLogout(): Promise<void> {
 
 <template>
   <header class="app-header">
-    <RouterLink to="/" class="brand" aria-label="Delivery Tracking, ir al mapa">
+    <RouterLink to="/" class="brand" aria-label="Delivery Tracking, ir al inicio">
       <span class="brand-short">DT</span>
       <span class="brand-full">Delivery Tracking</span>
     </RouterLink>
@@ -48,8 +48,7 @@ async function onLogout(): Promise<void> {
         <button type="button" class="btn" @click="onLogout">Salir</button>
       </template>
       <template v-else>
-        <RouterLink :to="{ name: 'login' }" class="btn">Entrar</RouterLink>
-        <RouterLink :to="{ name: 'register' }" class="btn btn-dark">Crear cuenta</RouterLink>
+        <RouterLink :to="{ name: 'login' }" class="btn">Personal</RouterLink>
       </template>
     </div>
   </header>
@@ -154,11 +153,6 @@ a {
   font-weight: 600;
   white-space: nowrap;
   cursor: pointer;
-}
-.btn-dark {
-  background: var(--text);
-  border-color: var(--text);
-  color: #fff;
 }
 
 @media (min-width: 768px) {

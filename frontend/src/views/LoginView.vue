@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { reactive, ref } from 'vue';
-import { RouterLink, useRoute, useRouter } from 'vue-router';
+import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from '../store/auth';
 
 const auth = useAuthStore();
@@ -15,9 +15,11 @@ const isDev = import.meta.env.DEV;
 auth.clearError();
 
 // Solo se acepta un redirect interno (empieza con "/" y no con "//")
+// Sin redirect válido: STAFF y ADMIN van a vuelos y los demás al inicio
 function redirectTarget(): string {
   const value = route.query.redirect;
-  return typeof value === 'string' && value.startsWith('/') && !value.startsWith('//') ? value : '/';
+  if (typeof value === 'string' && value.startsWith('/') && !value.startsWith('//')) return value;
+  return auth.role === 'STAFF' || auth.role === 'ADMIN' ? '/staff/vuelos' : '/';
 }
 
 function validate(): string | null {
@@ -38,7 +40,7 @@ async function onSubmit(): Promise<void> {
   <main class="auth-page">
     <form class="sheet auth-card" novalidate @submit.prevent="onSubmit">
       <h1>Iniciar sesión</h1>
-      <p class="subtitle">Entra con tu cuenta de Delivery Tracking</p>
+      <p class="subtitle">Acceso para el personal de Delivery Tracking</p>
 
       <label class="field">
         <span>Correo</span>
@@ -57,14 +59,9 @@ async function onSubmit(): Promise<void> {
         {{ auth.loading ? 'Entrando…' : 'Entrar' }}
       </button>
 
-      <p class="switch">
-        ¿No tienes cuenta?
-        <RouterLink :to="{ name: 'register', query: route.query }">Regístrate</RouterLink>
-      </p>
-
       <!-- Solo en desarrollo: usuarios de prueba del backend -->
       <p v-if="isDev" class="hint">
-        Prueba: cliente@, staff@ o admin@deliverytracking.test · clave Prueba123
+        Prueba: staff@ o admin@deliverytracking.test · clave Prueba123
       </p>
     </form>
   </main>
@@ -147,18 +144,6 @@ h1 {
 .submit:disabled {
   opacity: 0.6;
   cursor: progress;
-}
-.switch {
-  margin: 0;
-  font-size: 14px;
-  text-align: center;
-  color: var(--text-2);
-}
-.switch a {
-  display: inline-block;
-  padding: 12px 4px; /* área de toque más grande */
-  color: var(--plane-selected);
-  font-weight: 600;
 }
 .hint {
   margin: 0;

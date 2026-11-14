@@ -1,7 +1,9 @@
 <script setup lang="ts">
 import { computed, ref, watch } from 'vue';
 import { RouterLink, useRoute } from 'vue-router';
+import ShipmentMap from '../components/ShipmentMap.vue';
 import ShipmentTimeline from '../components/ShipmentTimeline.vue';
+import { usePolling } from '../composables/usePolling';
 import { ApiError } from '../services/api';
 import { fetchShipment, fetchTracking } from '../services/shipmentApi';
 import type { ShipmentDetail, ShipmentStatus } from '../types/shipment';
@@ -71,6 +73,26 @@ async function load(): Promise<void> {
 }
 
 watch(code, load, { immediate: true });
+
+// Cada 15 s se vuelve a pedir el seguimiento para mover el avión en el mapa
+const POLL_MS = 15_000;
+
+async function refreshTracking(): Promise<void> {
+  // La primera carga la hace load(); sin envío no hay nada que actualizar
+  if (loading.value || !shipment.value) return;
+  const thisLoad = currentLoad;
+  try {
+    const data = await fetchTracking(code.value);
+    if (thisLoad !== currentLoad) return; // cambió de envío mientras se pedía
+    tracking.value = data;
+    trackingFailed.value = false;
+  } catch {
+    // Si falla, se conserva la última posición y no se muestra error
+  }
+}
+
+// Se detiene sola al salir de la pantalla y cuando la pestaña está oculta
+usePolling(refreshTracking, POLL_MS);
 
 function formatDate(iso: string): string {
   return new Date(iso).toLocaleString('es-CO', { dateStyle: 'medium', timeStyle: 'short' });
@@ -147,6 +169,14 @@ function toKmh(ms: number): string {
           </template>
           <p v-else class="muted">Aún sin vuelo asignado</p>
         </section>
+
+        <!-- Mapa: solo si el envío tiene vuelo -->
+        <ShipmentMap
+          v-if="shipment.flight"
+          :origin="shipment.flight.origin"
+          :destination="shipment.flight.destination"
+          :live="tracking?.live ?? null"
+        />
 
         <!-- Posición del avión -->
         <section class="sheet card">

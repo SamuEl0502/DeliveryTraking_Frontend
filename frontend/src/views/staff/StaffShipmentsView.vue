@@ -146,7 +146,24 @@ async function selectShipment(shipment: StaffShipment): Promise<void> {
   flightsSection.value?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-async function onAssign(flight: AssignFlight): Promise<void> {
+// Vuelo de salida más próxima con capacidad suficiente (null si no hay)
+const autoFlight = computed<AssignFlight | null>(() => {
+  const shipment = selected.value;
+  if (!shipment) return null;
+  let best: AssignFlight | null = null;
+  for (const f of flights.value) {
+    if (f.remainingCapacityKg < shipment.weightKg) continue;
+    if (best === null || Date.parse(f.scheduledDeparture) < Date.parse(best.scheduledDeparture)) best = f;
+  }
+  return best;
+});
+
+function onAutoAssign(): void {
+  const flight = autoFlight.value;
+  if (flight) void onAssign(flight, true);
+}
+
+async function onAssign(flight: AssignFlight, auto = false): Promise<void> {
   const shipment = selected.value;
   if (!shipment || busy.value) return;
   const wasReassign = shipment.hasFlight;
@@ -160,9 +177,9 @@ async function onAssign(flight: AssignFlight): Promise<void> {
       flightId: flight.id,
       expectedFlightVersion: flight.version,
     });
-    notice.value = wasReassign
-      ? `Envío ${shipment.trackingCode} reasignado al vuelo ${flight.flightNumber}.`
-      : `Envío ${shipment.trackingCode} asignado al vuelo ${flight.flightNumber}.`;
+    const verbo = wasReassign ? 'reasignado' : 'asignado';
+    const salida = auto ? ` Sale el ${formatTime(flight.scheduledDeparture, flight.origin.timezone)}.` : '';
+    notice.value = `Envío ${shipment.trackingCode} ${verbo} al vuelo ${flight.flightNumber}.${salida}`;
     selected.value = { ...shipment, hasFlight: true };
     await Promise.all([loadShipments(), loadFlights()]);
   } catch (e: unknown) {
@@ -297,7 +314,15 @@ onMounted(loadShipments);
             No hay vuelos programados con capacidad suficiente para esta ruta.
           </p>
 
-          <ul v-else class="list">
+          <template v-if="!loadingFlights && !flightsError">
+            <button type="button" class="primary" :disabled="busy || !autoFlight" @click="onAutoAssign">
+              {{ busy && busyFlightId === autoFlight?.id ? 'Enviando…' : 'Asignar automáticamente' }}
+            </button>
+            <p v-if="autoFlight" class="muted">Elige el vuelo más próximo con capacidad suficiente</p>
+            <p v-else class="muted">No hay vuelos disponibles para esta ruta</p>
+          </template>
+
+          <ul v-if="!loadingFlights && !flightsError && flights.length > 0" class="list">
             <li v-for="f in flights" :key="f.id" class="flight">
               <div class="flight-top">
                 <strong class="code">{{ f.flightNumber }}</strong>

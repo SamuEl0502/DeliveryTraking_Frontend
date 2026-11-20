@@ -1,28 +1,64 @@
-// Contrato para vuelos y asignaciones (flight staff features)
-import type { Airport } from './flightDetails';
+// Contrato de vuelos y asignaciones (igual a la API del backend)
+
+export interface Airport {
+  iataCode: string;
+  icaoCode: string;
+  name: string;
+  city: string;
+  lat: number;
+  lng: number;
+  timezone: string;
+}
+
+export type FlightStatus = 'SCHEDULED' | 'DEPARTED' | 'LANDED' | 'CANCELLED';
 
 export interface Flight {
   id: string;
-  callsign: string;
-  status: 'scheduled' | 'active' | 'completed' | 'cancelled';
+  flightNumber: string;
+  callsign: string | null;
+  aircraftIcao24: string | null;
+  status: FlightStatus;
+  scheduledDeparture: string; // ISO 8601 UTC
+  scheduledArrival: string; // ISO 8601 UTC
   origin: Airport;
   destination: Airport;
-  departureTime: string; // ISO 8601 UTC
-  arrivalTime: string; // ISO 8601 UTC
-  aircraftIcao24: string | null;
-  /** Control de versión optimista: cambia al asignar/desasignar avión */
-  expectedVersion: number;
-  capacityRemaining: number;
-  totalCapacity: number;
+  capacityKg: number;
+  assignedKg: number;
+  remainingCapacityKg: number;
+  /** Control de versión optimista: cambia con cada modificación del vuelo */
+  version: number;
+}
+
+export interface Pagination {
+  page: number;
+  limit: number;
+  total: number;
+  totalPages: number;
 }
 
 export interface FlightListResponse {
   flights: Flight[];
-  total: number;
+  pagination: Pagination;
 }
 
+/** Filtros de GET /api/flights */
+export interface FlightListFilters {
+  origin?: string; // IATA de 3 letras
+  destination?: string; // IATA de 3 letras
+  date?: string; // AAAA-MM-DD
+  minCapacityKg?: number;
+  page?: number;
+  limit?: number; // máximo 100
+}
+
+/** Cuerpo de PATCH /api/flights/:id/aircraft */
 export interface AssignAircraftRequest {
-  icao24: string;
+  icao24: string; // 6 caracteres hexadecimales
+  expectedVersion: number;
+}
+
+/** Cuerpo de DELETE /api/flights/:id/aircraft */
+export interface UnassignAircraftRequest {
   expectedVersion: number;
 }
 

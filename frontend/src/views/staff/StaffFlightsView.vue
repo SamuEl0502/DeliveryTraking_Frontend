@@ -13,24 +13,26 @@
 
     <!-- Filtros (opcional, básico) -->
     <div class="filters">
-      <input v-model="filters.originIata" type="text" placeholder="Origen (IATA)" maxlength="3" />
-      <input v-model="filters.destinationIata" type="text" placeholder="Destino (IATA)" maxlength="3" />
-      <button @click="loadFlights" :disabled="loading">Filtrar</button>
+      <input v-model="filters.origin" type="text" placeholder="Origen (IATA)" maxlength="3" />
+      <input v-model="filters.destination" type="text" placeholder="Destino (IATA)" maxlength="3" />
+      <button @click="applyFilters" :disabled="loading">Filtrar</button>
     </div>
+
+    <ScheduleLookup :origin="filters.origin" :destination="filters.destination" />
 
     <!-- Listado de vuelos -->
     <div class="flights-list">
       <div v-for="flight in flights" :key="flight.id" class="flight-card">
         <div class="flight-header">
-          <h3>{{ flight.callsign }}</h3>
-          <span :class="['status', flight.status]">{{ flight.status }}</span>
+          <h3>{{ flight.flightNumber }}</h3>
+          <span :class="['status', flight.status.toLowerCase()]">{{ STATUS_LABELS[flight.status] }}</span>
         </div>
 
         <div class="flight-details">
-          <p><strong>Ruta:</strong> {{ flight.origin.iata || flight.origin.icao }} → {{ flight.destination.iata || flight.destination.icao }}</p>
-          <p><strong>Salida:</strong> {{ formatTime(flight.departureTime) }}</p>
-          <p><strong>Llegada:</strong> {{ formatTime(flight.arrivalTime) }}</p>
-          <p><strong>Capacidad:</strong> {{ flight.capacityRemaining }} / {{ flight.totalCapacity }} disponible</p>
+          <p><strong>Ruta:</strong> {{ flight.origin.iataCode }} → {{ flight.destination.iataCode }}</p>
+          <p><strong>Salida:</strong> {{ formatTime(flight.scheduledDeparture) }}</p>
+          <p><strong>Llegada:</strong> {{ formatTime(flight.scheduledArrival) }}</p>
+          <p><strong>Capacidad:</strong> {{ flight.remainingCapacityKg }} de {{ flight.capacityKg }} kg disponibles</p>
           <p v-if="flight.aircraftIcao24"><strong>Avión:</strong> {{ flight.aircraftIcao24 }}</p>
           <p v-else><strong>Avión:</strong> Sin asignar</p>
         </div>
@@ -63,14 +65,27 @@
         No hay vuelos disponibles.
       </div>
     </div>
+
+    <!-- Paginación -->
+    <div v-if="pagination && pagination.totalPages > 1" class="pager">
+      <button @click="goToPage(pagination.page - 1)" :disabled="loading || pagination.page <= 1">Anterior</button>
+      <span>Página {{ pagination.page }} de {{ pagination.totalPages }} ({{ pagination.total }} vuelos)</span>
+      <button
+        @click="goToPage(pagination.page + 1)"
+        :disabled="loading || pagination.page >= pagination.totalPages"
+      >
+        Siguiente
+      </button>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive, computed, onMounted } from 'vue';
+import { ref, reactive, computed, watch, onMounted } from 'vue';
 import { ApiError } from '../../services/api';
 import * as flightApi from '../../services/flightApi';
-import type { Flight } from '../../types/flights';
+import ScheduleLookup from '../../components/ScheduleLookup.vue';
+import type { Flight, FlightStatus, Pagination } from '../../types/flights';
 
 interface AssignForm {
   icao24: string;
@@ -84,13 +99,36 @@ const assignForms = reactive<Record<string, AssignForm>>({});
 const assignErrors = reactive<Record<string, string>>({});
 
 const filters = reactive({
-  originIata: '',
-  destinationIata: '',
+  origin: '',
+  destination: '',
 });
+
+const PAGE_SIZE = 20;
+const page = ref(1);
+const pagination = ref<Pagination | null>(null);
+
+const STATUS_LABELS: Record<FlightStatus, string> = {
+  SCHEDULED: 'Programado',
+  DEPARTED: 'En vuelo',
+  LANDED: 'Aterrizado',
+  CANCELLED: 'Cancelado',
+};
+
+// El icao24 son 6 caracteres hexadecimales
+const ICAO24_REGEX = /^[0-9a-fA-F]{6}$/;
+
+// Los IATA se escriben en mayúsculas y solo con letras
+watch(
+  () => [filters.origin, filters.destination],
+  () => {
+    filters.origin = filters.origin.toUpperCase().replace(/[^A-Z]/g, '');
+    filters.destination = filters.destination.toUpperCase().replace(/[^A-Z]/g, '');
+  },
+);
 
 const canAssign = computed(() => (flight: Flight) => {
   const form = assignForms[flight.id];
-  return form?.icao24?.trim().length === 6 && assigningFlight.value === null;
+  return ICAO24_REGEX.test(form?.icao24?.trim() ?? '') && assigningFlight.value === null;
 });
 
 function updateAssignForm(flightId: string, key: string, value: string) {
@@ -100,7 +138,7 @@ function updateAssignForm(flightId: string, key: string, value: string) {
 
 function formatTime(iso: string): string {
   try {
-    return new Date(iso).toLocaleString('es-ES', {
+    return new Date(iso).toLocaleString('es-CO', {
       month: '2-digit',
       day: '2-digit',
       hour: '2-digit',
@@ -115,12 +153,14 @@ async function loadFlights() {
   loading.value = true;
   error.value = null;
   try {
-    const filtersObj = {
-      originIata: filters.originIata || undefined,
-      destinationIata: filters.destinationIata || undefined,
-    };
-    const response = await flightApi.fetchFlights(filtersObj);
+    const response = await flightApi.fetchFlights({
+      origin: filters.origin || undefined,
+      destination: filters.destination || undefined,
+      page: page.value,
+      limit: PAGE_SIZE,
+    });
     flights.value = response.flights;
+    pagination.value = response.pagination;
   } catch (e: unknown) {
     if (e instanceof ApiError) {
       error.value = e.message;
@@ -130,6 +170,23 @@ async function loadFlights() {
   } finally {
     loading.value = false;
   }
+}
+
+function applyFilters() {
+  page.value = 1;
+  void loadFlights();
+}
+
+function goToPage(target: number) {
+  page.value = target;
+  void loadFlights();
+}
+
+// Vuelve a pedir un solo vuelo y lo reemplaza en la lista
+async function reloadFlight(flightId: string) {
+  const fresh = await flightApi.fetchFlight(flightId);
+  const idx = flights.value.findIndex((f) => f.id === flightId);
+  if (idx !== -1) flights.value[idx] = fresh;
 }
 
 async function assignAircraft(flight: Flight) {
@@ -142,7 +199,7 @@ async function assignAircraft(flight: Flight) {
   try {
     const updated = await flightApi.assignAircraftToFlight(flight.id, {
       icao24: form.icao24.toUpperCase(),
-      expectedVersion: flight.expectedVersion,
+      expectedVersion: flight.version,
     });
 
     const idx = flights.value.findIndex((f) => f.id === flight.id);
@@ -155,7 +212,14 @@ async function assignAircraft(flight: Flight) {
   } catch (e: unknown) {
     if (e instanceof ApiError) {
       if (e.code === 'VERSION_CONFLICT') {
-        assignErrors[flight.id] = 'El vuelo fue modificado. Recarga para ver los cambios.';
+        assignErrors[flight.id] = 'El vuelo cambió. Lo recargamos; revisa los datos y vuelve a intentar.';
+        try {
+          await reloadFlight(flight.id);
+        } catch {
+          assignErrors[flight.id] = 'El vuelo cambió y no se pudo recargar. Pulsa Filtrar para actualizar.';
+        }
+      } else if (e.code === 'VALIDATION_ERROR') {
+        assignErrors[flight.id] = 'Datos inválidos: el icao24 debe tener 6 caracteres hexadecimales.';
       } else if (e.code === 'INVALID_AIRPORT') {
         assignErrors[flight.id] = 'El avión no está en un aeropuerto válido para este vuelo.';
       } else if (e.code === 'AIRCRAFT_NOT_FOUND') {
@@ -282,16 +346,6 @@ h1 {
   color: #1976d2;
 }
 
-.status.active {
-  background: #f3e5f5;
-  color: #7b1fa2;
-}
-
-.status.completed {
-  background: #e8f5e9;
-  color: #388e3c;
-}
-
 .status.cancelled {
   background: #ffebee;
   color: #d32f2f;
@@ -351,6 +405,40 @@ h1 {
   color: #d32f2f;
   font-size: 0.85rem;
   margin-top: 0.5rem;
+}
+
+.pager {
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  gap: 1rem;
+  margin-top: 1.5rem;
+  font-size: 0.9rem;
+  color: #555;
+}
+
+.pager button {
+  padding: 0.5rem 1rem;
+  background: #007bff;
+  color: white;
+  border: none;
+  border-radius: 0.25rem;
+  cursor: pointer;
+}
+
+.pager button:disabled {
+  background: #ccc;
+  cursor: not-allowed;
+}
+
+.status.departed {
+  background: #f3e5f5;
+  color: #7b1fa2;
+}
+
+.status.landed {
+  background: #e8f5e9;
+  color: #388e3c;
 }
 
 .no-flights {

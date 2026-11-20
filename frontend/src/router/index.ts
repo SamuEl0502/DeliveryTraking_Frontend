@@ -22,14 +22,20 @@ export function canAccess(meta: RouteMeta, role: Role | null): boolean {
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
-    // Inicio, seguimiento de envíos y mapa son públicos
+    // Inicio y seguimiento de envíos son públicos
     { path: '/', name: 'home', component: () => import('../views/HomeView.vue') },
     {
       path: '/envio/:codigo',
       name: 'shipment-tracking',
       component: () => import('../views/ShipmentTrackingView.vue'),
     },
-    { path: '/mapa', name: 'map', component: () => import('../views/MapView.vue'), meta: { menu: 'Mapa' } },
+    // Mapa general con todos los aviones: solo para el personal
+    {
+      path: '/mapa',
+      name: 'map',
+      component: () => import('../views/MapView.vue'),
+      meta: { requiresAuth: true, roles: ['STAFF', 'ADMIN'], menu: 'Mapa' },
+    },
     {
       path: '/login',
       name: 'login',

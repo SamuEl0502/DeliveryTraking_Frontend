@@ -42,7 +42,6 @@ async function onSubmit(): Promise<void> {
       <button type="submit" class="submit">Buscar envío</button>
 
       <div class="links">
-        <RouterLink :to="{ name: 'map' }">Ver mapa de vuelos</RouterLink>
         <RouterLink :to="{ name: 'login' }">Acceso del personal</RouterLink>
       </div>
     </form>

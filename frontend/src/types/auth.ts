@@ -10,7 +10,7 @@ export interface PublicUser {
   airportId: string | null;
 }
 
-/** Respuesta de register, login y refresh */
+/** Respuesta de login y refresh */
 export interface AuthResponse {
   accessToken: string;
   user: PublicUser;
@@ -19,10 +19,4 @@ export interface AuthResponse {
 export interface LoginBody {
   email: string;
   password: string;
-}
-
-export interface RegisterBody {
-  email: string;
-  password: string; // entre 8 y 72 caracteres
-  name: string;
 }

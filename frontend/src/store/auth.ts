@@ -2,7 +2,7 @@ import { defineStore } from 'pinia';
 import { computed, ref } from 'vue';
 import { ApiError } from '../services/api';
 import * as authApi from '../services/authApi';
-import type { AuthResponse, LoginBody, PublicUser, RegisterBody, Role } from '../types/auth';
+import type { AuthResponse, LoginBody, PublicUser, Role } from '../types/auth';
 
 // Mensajes para la UI según el `code` del backend
 function errorMessage(e: unknown): string {
@@ -10,8 +10,6 @@ function errorMessage(e: unknown): string {
   switch (e.code) {
     case 'INVALID_CREDENTIALS':
       return 'Correo o contraseña incorrectos';
-    case 'EMAIL_TAKEN':
-      return 'Ya existe una cuenta con ese correo';
     case 'VALIDATION_ERROR':
       return 'Revisa los datos del formulario';
     case 'TOO_MANY_REQUESTS':
@@ -53,21 +51,6 @@ export const useAuthStore = defineStore('auth', () => {
     error.value = null;
     try {
       setSession(await authApi.login(body));
-      return true;
-    } catch (e: unknown) {
-      error.value = errorMessage(e);
-      return false;
-    } finally {
-      loading.value = false;
-    }
-  }
-
-  async function register(body: RegisterBody): Promise<boolean> {
-    loading.value = true;
-    error.value = null;
-    try {
-      // El backend ya deja la sesión iniciada al registrarse
-      setSession(await authApi.register(body));
       return true;
     } catch (e: unknown) {
       error.value = errorMessage(e);
@@ -136,7 +119,6 @@ export const useAuthStore = defineStore('auth', () => {
     isAuthenticated,
     role,
     login,
-    register,
     logout,
     refresh,
     restoreSession,

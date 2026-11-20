@@ -48,7 +48,10 @@ async function onLogout(): Promise<void> {
         <button type="button" class="btn" @click="onLogout">Salir</button>
       </template>
       <template v-else>
-        <RouterLink :to="{ name: 'login' }" class="btn">Personal</RouterLink>
+         <div style="display: flex; gap: 0.5rem;">
+            <RouterLink :to="{ name: 'login' }" class="btn">Personal</RouterLink>
+            <RouterLink :to="{ name: 'home' }" class="btn">Buscar por codigo de envio</RouterLink>
+          </div>
       </template>
     </div>
   </header>

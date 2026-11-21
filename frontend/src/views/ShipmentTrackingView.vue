@@ -22,8 +22,8 @@ const STATUS_LABELS: Record<ShipmentStatus, string> = {
 // Mensaje cuando no hay posición del avión
 const REASON_MESSAGES: Record<NoPositionReason, string> = {
   no_flight: 'Este envío todavía no tiene un vuelo asignado.',
-  no_aircraft: 'El vuelo aún no tiene un avión asignado.',
-  no_position: 'No hay posición reciente del avión. Puede estar en tierra o fuera de cobertura.',
+  no_aircraft: 'Aún no detectamos el avión de este vuelo. Aparece cuando empieza a transmitir su señal, unos minutos antes de despegar.',
+  no_position: 'El avión no está transmitiendo en este momento. Puede estar en tierra o fuera de cobertura.',
   source_unavailable: 'El servicio de posiciones no responde en este momento. Intenta de nuevo más tarde.',
 };
 

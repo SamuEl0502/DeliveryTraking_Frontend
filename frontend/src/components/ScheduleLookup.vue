@@ -37,6 +37,16 @@
             </div>
           </li>
         </ul>
+
+        <!-- Guardar como vuelos: no tiene sentido con datos de ejemplo -->
+        <div v-if="result.source !== 'fixture'" class="import">
+          <button type="button" class="save-btn" :disabled="saving" @click="saveFlights">
+            {{ saving ? 'Guardando…' : 'Guardar estas salidas como vuelos' }}
+          </button>
+          <p class="credits-note">Guarda las salidas como vuelos para poder asignarles paquetes</p>
+          <p v-if="importMessage" class="state success" role="status">{{ importMessage }}</p>
+          <p v-if="importError" class="state error" role="alert">{{ importError }}</p>
+        </div>
       </template>
     </div>
   </section>
@@ -45,12 +55,17 @@
 <script setup lang="ts">
 import { computed, ref } from 'vue';
 import { ApiError } from '../services/api';
-import { fetchSchedule } from '../services/scheduleApi';
+import { fetchSchedule, importSchedule } from '../services/scheduleApi';
 import type { ScheduleDeparture, ScheduleResponse, ScheduleSource } from '../types/schedule';
 
 const props = defineProps<{
   origin: string;
   destination: string;
+}>();
+
+// Avisa al padre que se guardaron vuelos, para que recargue su lista
+const emit = defineEmits<{
+  saved: [];
 }>();
 
 const WINDOW_MINUTES = 120;
@@ -59,6 +74,11 @@ const IATA_REGEX = /^[A-Za-z]{3}$/;
 const loading = ref(false);
 const error = ref<string | null>(null);
 const result = ref<ScheduleResponse | null>(null);
+
+// Estado de "Guardar como vuelos"
+const saving = ref(false);
+const importError = ref<string | null>(null);
+const importMessage = ref<string | null>(null);
 
 const SOURCE_LABELS: Record<ScheduleSource, string> = {
   airlabs: 'Consulta nueva',
@@ -75,6 +95,20 @@ const ERROR_MESSAGES: Record<string, string> = {
   UNAUTHORIZED: 'Debes iniciar sesión para consultar las salidas.',
   SESSION_EXPIRED: 'Tu sesión expiró. Vuelve a iniciar sesión.',
   FORBIDDEN: 'Solo el personal o un administrador puede consultar las salidas.',
+};
+
+// Mensajes en español para los errores de guardar
+const IMPORT_ERROR_MESSAGES: Record<string, string> = {
+  IMPORT_NOT_AVAILABLE: 'El servidor está en modo de ejemplo: no se pueden guardar salidas reales.',
+  AIRPORT_NOT_SUPPORTED: 'Alguno de los aeropuertos de esta ruta no está disponible en el sistema.',
+  FORBIDDEN_AIRPORT: 'No tienes permiso para guardar vuelos de este aeropuerto.',
+  SCHEDULE_QUOTA: 'Se agotaron las consultas disponibles. Intenta más tarde.',
+  SCHEDULE_UPSTREAM_ERROR: 'El proveedor de horarios no respondió. Intenta más tarde.',
+  SCHEDULE_NOT_CONFIGURED: 'La consulta de horarios no está configurada en el servidor.',
+  VALIDATION_ERROR: 'Origen y destino deben ser códigos IATA de 3 letras.',
+  UNAUTHORIZED: 'Debes iniciar sesión para guardar las salidas.',
+  SESSION_EXPIRED: 'Tu sesión expiró. Vuelve a iniciar sesión.',
+  FORBIDDEN: 'Solo el personal o un administrador puede guardar las salidas.',
 };
 
 // Estados conocidos del proveedor; si llega otro, se muestra tal cual
@@ -96,6 +130,8 @@ async function search() {
   if (!canSearch.value) return;
   loading.value = true;
   error.value = null;
+  importError.value = null;
+  importMessage.value = null;
   try {
     result.value = await fetchSchedule(props.origin, props.destination, WINDOW_MINUTES);
   } catch (e: unknown) {
@@ -107,6 +143,29 @@ async function search() {
     }
   } finally {
     loading.value = false;
+  }
+}
+
+// Guarda las salidas mostradas como vuelos (usa la ruta del resultado, no la de los inputs)
+async function saveFlights() {
+  if (!result.value || saving.value) return;
+  saving.value = true;
+  importError.value = null;
+  importMessage.value = null;
+  try {
+    const res = await importSchedule(result.value.origin, result.value.destination, WINDOW_MINUTES);
+    const nuevos = `${res.newFlight} ${res.newFlight === 1 ? 'vuelo nuevo' : 'vuelos nuevos'}`;
+    const existentes = res.existFlight === 1 ? '1 ya estaba' : `${res.existFlight} ya estaban`;
+    importMessage.value = `Se guardaron ${nuevos}; ${existentes}`;
+    emit('saved');
+  } catch (e: unknown) {
+    if (e instanceof ApiError) {
+      importError.value = (e.code && IMPORT_ERROR_MESSAGES[e.code]) || e.message;
+    } else {
+      importError.value = 'No se pudieron guardar las salidas.';
+    }
+  } finally {
+    saving.value = false;
   }
 }
 
@@ -162,6 +221,34 @@ function statusText(dep: ScheduleDeparture): string {
 
 .state.error {
   color: #d32f2f;
+}
+
+.state.success {
+  color: #388e3c;
+}
+
+.import {
+  margin-top: 0.75rem;
+  padding-top: 0.75rem;
+  border-top: 1px solid #eee;
+}
+
+.save-btn {
+  width: 100%;
+  min-height: 44px;
+  padding: 0.5rem 1rem;
+  background: white;
+  color: #0d6e6e;
+  border: 1px solid #0d6e6e;
+  border-radius: 0.25rem;
+  font-size: 0.95rem;
+  cursor: pointer;
+}
+
+.save-btn:disabled {
+  color: #999;
+  border-color: #ccc;
+  cursor: not-allowed;
 }
 
 .result {
@@ -234,7 +321,8 @@ function statusText(dep: ScheduleDeparture): string {
 
 /* En pantallas anchas el botón no ocupa todo */
 @media (min-width: 600px) {
-  .lookup-btn {
+  .lookup-btn,
+  .save-btn {
     width: auto;
   }
 }

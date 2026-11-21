@@ -22,3 +22,25 @@ export interface ScheduleResponse {
   queriesToday: number;
   departures: ScheduleDeparture[];
 }
+
+// Contrato de POST /api/schedules/import (guardar salidas como vuelos)
+
+/** 'exist' = el vuelo ya estaba guardado; 'new' = se creó ahora */
+export type ImportFlightResult = 'exist' | 'new';
+
+export interface ImportedFlight {
+  flightId: string;
+  flightNumber: string;
+  departure: string; // ISO 8601
+  result: ImportFlightResult;
+}
+
+export interface ScheduleImportResponse {
+  origin: string;
+  destination: string;
+  source: ScheduleSource;
+  totalFlight: number;
+  existFlight: number;
+  newFlight: number;
+  flights: ImportedFlight[];
+}

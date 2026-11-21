@@ -18,7 +18,11 @@
       <button @click="applyFilters" :disabled="loading">Filtrar</button>
     </div>
 
-    <ScheduleLookup :origin="filters.origin" :destination="filters.destination" />
+    <ScheduleLookup
+      :origin="filters.origin"
+      :destination="filters.destination"
+      @saved="loadFlights"
+    />
 
     <!-- Listado de vuelos -->
     <div class="flights-list">

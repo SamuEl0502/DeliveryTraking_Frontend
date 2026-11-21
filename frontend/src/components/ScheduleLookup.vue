@@ -1,7 +1,7 @@
 <template>
   <section class="schedule-lookup">
     <button type="button" class="lookup-btn" :disabled="!canSearch" @click="search">
-      {{ loading ? 'Consultando…' : 'Ver salidas reales (próximos 40 min)' }}
+      {{ loading ? 'Consultando…' : 'Actualizar vuelos' }}
     </button>
     <p class="credits-note">Cada consulta usa créditos de la API</p>
 

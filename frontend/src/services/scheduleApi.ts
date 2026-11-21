@@ -1,5 +1,5 @@
 import { api } from './api';
-import type { ScheduleResponse } from '../types/schedule';
+import type { ScheduleImportResponse, ScheduleResponse } from '../types/schedule';
 
 /** Salidas reales de la ruta. Gasta créditos: llamar solo al pulsar el botón */
 export async function fetchSchedule(
@@ -13,6 +13,20 @@ export async function fetchSchedule(
       destination: destination.trim().toUpperCase(),
       minutes,
     },
+  });
+  return data;
+}
+
+/** Guarda las salidas reales de la ruta como vuelos. Solo STAFF y ADMIN */
+export async function importSchedule(
+  origin: string,
+  destination: string,
+  minutes: number,
+): Promise<ScheduleImportResponse> {
+  const { data } = await api.post<ScheduleImportResponse>('/api/schedules/import', {
+    origin: origin.trim().toUpperCase(),
+    destination: destination.trim().toUpperCase(),
+    minutes,
   });
   return data;
 }

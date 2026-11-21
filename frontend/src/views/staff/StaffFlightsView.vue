@@ -37,8 +37,8 @@
           <p v-else><strong>Avión:</strong> Sin asignar</p>
         </div>
 
-        <!-- Formulario de asignación de avión -->
-        <div class="assign-section">
+        <!-- Formulario de asignación de avión (solo Admin) -->
+        <div v-if="isAdmin" class="assign-section">
           <h4>Asignar avión</h4>
           <div class="assign-form">
             <input
@@ -85,7 +85,12 @@ import { ref, reactive, computed, watch, onMounted } from 'vue';
 import { ApiError } from '../../services/api';
 import * as flightApi from '../../services/flightApi';
 import ScheduleLookup from '../../components/ScheduleLookup.vue';
+import { useAuthStore } from '../../store/auth';
 import type { Flight, FlightStatus, Pagination } from '../../types/flights';
+
+// Solo el Admin puede asignar el avión a mano
+const auth = useAuthStore();
+const isAdmin = computed(() => auth.role === 'ADMIN');
 
 interface AssignForm {
   icao24: string;

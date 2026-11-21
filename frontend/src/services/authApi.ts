@@ -1,12 +1,7 @@
 import { api } from './api';
-import type { AuthResponse, LoginBody, PublicUser, RegisterBody } from '../types/auth';
+import type { AuthResponse, LoginBody, PublicUser } from '../types/auth';
 
 // Todas usan la instancia `api`, que ya manda la cookie (withCredentials)
-
-export async function register(body: RegisterBody): Promise<AuthResponse> {
-  const { data } = await api.post<AuthResponse>('/api/auth/register', body);
-  return data;
-}
 
 export async function login(body: LoginBody): Promise<AuthResponse> {
   const { data } = await api.post<AuthResponse>('/api/auth/login', body);

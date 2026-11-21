@@ -7,7 +7,7 @@ declare module 'vue-router' {
   interface RouteMeta {
     requiresAuth?: boolean; // hay que iniciar sesión
     roles?: Role[]; // si viene, solo esos roles pueden entrar
-    guestOnly?: boolean; // solo sin sesión (login y registro)
+    guestOnly?: boolean; // solo sin sesión (login)
     menu?: string; // texto del enlace en la cabecera; sin él la ruta no sale en el menú
   }
 }
@@ -22,18 +22,24 @@ export function canAccess(meta: RouteMeta, role: Role | null): boolean {
 export const router = createRouter({
   history: createWebHistory(),
   routes: [
-    // El mapa es público
-    { path: '/', name: 'map', component: () => import('../views/MapView.vue'), meta: { menu: 'Mapa' } },
+    // Inicio y seguimiento de envíos son públicos
+    { path: '/', name: 'home', component: () => import('../views/HomeView.vue') },
+    {
+      path: '/envio/:codigo',
+      name: 'shipment-tracking',
+      component: () => import('../views/ShipmentTrackingView.vue'),
+    },
+    // Mapa general con todos los aviones: solo para el personal
+    {
+      path: '/mapa',
+      name: 'map',
+      component: () => import('../views/MapView.vue'),
+      meta: { requiresAuth: true, roles: ['STAFF', 'ADMIN'], menu: 'Mapa' },
+    },
     {
       path: '/login',
       name: 'login',
       component: () => import('../views/LoginView.vue'),
-      meta: { guestOnly: true },
-    },
-    {
-      path: '/registro',
-      name: 'register',
-      component: () => import('../views/RegisterView.vue'),
       meta: { guestOnly: true },
     },
     {
@@ -49,6 +55,13 @@ export const router = createRouter({
       component: () => import('../views/staff/StaffFlightsView.vue'),
       meta: { requiresAuth: true, roles: ['STAFF', 'ADMIN'], menu: 'Vuelos' },
     },
+    // Staff: asignar envíos a vuelos
+    {
+      path: '/staff/envios',
+      name: 'staff-shipments',
+      component: () => import('../views/staff/StaffShipmentsView.vue'),
+      meta: { requiresAuth: true, roles: ['STAFF', 'ADMIN'], menu: 'Envíos' },
+    },
     // Las rutas nuevas van antes del comodín
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],
@@ -59,12 +72,12 @@ router.beforeEach(async (to) => {
   // La primera vez se espera el refresh silencioso para saber si hay sesión
   if (!auth.initialized) await auth.restoreSession();
 
-  if (to.meta.guestOnly && auth.isAuthenticated) return { name: 'map' };
+  if (to.meta.guestOnly && auth.isAuthenticated) return { name: 'home' };
   // Pedir roles también implica tener sesión
   if ((to.meta.requiresAuth || to.meta.roles) && !auth.isAuthenticated) {
     return { name: 'login', query: { redirect: to.fullPath } };
   }
-  // Con sesión pero sin el rol pedido: de vuelta al mapa
-  if (!canAccess(to.meta, auth.role)) return { name: 'map' };
+  // Con sesión pero sin el rol pedido: de vuelta al inicio
+  if (!canAccess(to.meta, auth.role)) return { name: 'home' };
   return true;
 });

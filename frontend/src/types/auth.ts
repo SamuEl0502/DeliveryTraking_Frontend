@@ -8,6 +8,8 @@ export interface PublicUser {
   name: string;
   role: Role;
   airportId: string | null;
+  // Aeropuerto del Staff; el Admin no tiene
+  airport: { iataCode: string; name: string } | null;
 }
 
 /** Respuesta de login y refresh */

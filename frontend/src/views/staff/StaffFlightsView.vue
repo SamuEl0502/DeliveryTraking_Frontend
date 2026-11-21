@@ -13,16 +13,19 @@
 
     <!-- Filtros (opcional, básico) -->
     <div class="filters">
-      <input v-model="filters.origin" type="text" placeholder="Origen (IATA)" maxlength="3" />
+      <span v-if="staffAirport" class="fixed-origin">
+        Origen: {{ staffAirport.iataCode }} · {{ staffAirport.name }}
+      </span>
+      <input v-else v-model="filters.origin" type="text" placeholder="Origen (IATA)" maxlength="3" />
       <input v-model="filters.destination" type="text" placeholder="Destino (IATA)" maxlength="3" />
       <button @click="applyFilters" :disabled="loading">Filtrar</button>
     </div>
 
     <ScheduleLookup
-      :origin="filters.origin"
+      :origin="originValue"
       :destination="filters.destination"
       @saved="loadFlights"
-    />
+    /> main
 
     <!-- Listado de vuelos -->
     <div class="flights-list">
@@ -89,6 +92,7 @@ import { ref, reactive, computed, watch, onMounted } from 'vue';
 import { ApiError } from '../../services/api';
 import * as flightApi from '../../services/flightApi';
 import ScheduleLookup from '../../components/ScheduleLookup.vue';
+import { useAuthStore } from '../../store/auth';
 import type { Flight, FlightStatus, Pagination } from '../../types/flights';
 
 interface AssignForm {
@@ -106,6 +110,14 @@ const filters = reactive({
   origin: '',
   destination: '',
 });
+
+// Un Staff siempre sale de su aeropuerto: no escribe el origen
+const auth = useAuthStore();
+const staffAirport = computed(() =>
+  auth.user?.role === 'STAFF' ? auth.user.airport : null,
+);
+// Origen que se usa al filtrar y en ScheduleLookup
+const originValue = computed(() => staffAirport.value?.iataCode ?? filters.origin);
 
 const PAGE_SIZE = 20;
 const page = ref(1);
@@ -158,7 +170,7 @@ async function loadFlights() {
   error.value = null;
   try {
     const response = await flightApi.fetchFlights({
-      origin: filters.origin || undefined,
+      origin: originValue.value || undefined,
       destination: filters.destination || undefined,
       page: page.value,
       limit: PAGE_SIZE,

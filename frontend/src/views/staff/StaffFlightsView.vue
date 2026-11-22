@@ -25,7 +25,7 @@
       :origin="originValue"
       :destination="filters.destination"
       @saved="loadFlights"
-    /> main
+    />
 
     <!-- Listado de vuelos -->
     <div class="flights-list">
@@ -115,8 +115,7 @@ const filters = reactive({
   destination: '',
 });
 
-// Un Staff siempre sale de su aeropuerto: no escribe el origen
-const auth = useAuthStore();
+// Un Staff siempre sale de su aeropuerto: no escribe el origen (usa el mismo `auth` de arriba)
 const staffAirport = computed(() =>
   auth.user?.role === 'STAFF' ? auth.user.airport : null,
 );

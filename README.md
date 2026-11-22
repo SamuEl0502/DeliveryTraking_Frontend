@@ -4,7 +4,7 @@ Sistema robusto de **rastreo geoespacial en tiempo real de paquetes y envíos a�
 
 ## Stack
 
-Vue 3 · TypeScript estricto · Vite · Pinia · Vue Router · Axios · Leaflet (tiles de OpenStreetMap)
+Vue 3 · TypeScript estricto · Vite · Pinia · Vue Router · Axios · MapLibre GL (mapa de aviones en 3D: globo, inclinación y edificios) · Leaflet (mapa del envío) · mapa base vectorial de Protomaps; sin llave, tiles de OpenStreetMap
 
 ## Requisitos
 
@@ -31,6 +31,7 @@ npm run preview     # sirve el build localmente
 ## Variables de entorno (`frontend/.env.example`)
 
 - `VITE_API_URL`: URL base del backend (si falta, se usa `http://localhost:3000`).
+- `VITE_PROTOMAPS_KEY`: llave de Protomaps para el mapa base. Si falta, el mapa usa los tiles de OpenStreetMap. Es una llave pública (va al navegador); se limita por dominio en la cuenta de Protomaps.
 
 ## Contrato con el backend
 
@@ -53,7 +54,7 @@ frontend/
     services/     Axios tipado con interceptor de errores
     store/        tiendas Pinia (aviones, selección, carga, error)
     composables/  usePolling (polling 10 s) · useSmoothedPosition (suavizado)
-    components/   AircraftMap (Leaflet) · AircraftPanel (avión seguido)
+    components/   AircraftMap (MapLibre GL, 3D) · AircraftPanel (avión seguido)
     views/        MapView (pantalla principal)
     router/       rutas
   EXPLICACION.md  guía del código y del flujo de datos
@@ -63,14 +64,14 @@ frontend/
 
 **Funciona hoy**
 - Mapa con aviones reales sobre EE. UU., consultando al backend cada 10 s (pausa con la pestaña oculta).
-- Solo se dibujan los aviones en el aire y visibles (máx. 400), rotados según su rumbo.
+- Solo se dibujan los aviones en el aire y visibles (máx. 400), rotados según su rumbo. Van acostados sobre el mapa (`pitchAlignment` y `rotationAlignment` en `map`): al inclinarlo o girarlo se ven en perspectiva, como sobre el terreno. Su sombra se separa más cuanto más alto vuelan (variable CSS `--lift`, de 1 px en tierra a 8 px a 12 000 m).
 - Clic en un avión: panel con callsign, velocidad, altitud, estado y hora de la última posición.
 - Movimiento suave: extrapolación con velocidad y rumbo, más corrección con lerp; "señal perdida" tras 2 min sin datos.
 - Indicador de carga y banner de error con reintento si el backend no responde. El banner muestra el `message` que manda el backend y su `correlationId` como "ref." para buscarlo en los logs. Si la respuesta no trae ese formato, muestra un mensaje genérico con el código HTTP.
 - Si OpenSky no manda la hora de un avión (`ts = 0`), el panel muestra "sin hora" y "Señal perdida", en vez de una fecha de 1970.
 - Panel del avión: la foto va arriba, a todo el ancho del panel y en proporción 3:2, con el crédito "Foto: {fotógrafo} / Planespotters" enlazado a la página de la foto, como exige Planespotters. Debajo están la ruta y la barra de progreso del recorrido, que no lleva número; el porcentaje queda solo en el `aria-label` para lectores de pantalla.
 - Buscador de vuelos en la tarjeta "En el aire". Filtra en el navegador la lista de aviones en el aire que ya trajo el backend, así que no gasta API. Acepta el número comercial IATA (`WN590`, `B6123`) y lo traduce al callsign ICAO (`SWA590`, `JBU123`) para las 11 aerolíneas principales de EE. UU. (tabla en `src/utils/flightSearch.ts`). El callsign ICAO también funciona directo. Muestra hasta 8 sugerencias, cada una con su número comercial (`WN590`) si la aerolínea está en la tabla; con clic o Enter se abre el panel del avión y el mapa vuela hasta él. Se maneja con teclado: flechas, Enter y Escape. Prueba: `npm test` (Node 22.6 o superior).
-- Etiqueta del vuelo, al estilo FlightRadar24: el avión seleccionado muestra encima una píldora azul con su número de vuelo. Igual que la cabecera del panel, muestra el número comercial (`WN590`) y no el indicativo ICAO (`SWA590`). Orden: el `flightNumber` de `/schedule`, el de la ruta, la conversión del callsign con la aerolínea de adsbdb (`route.airline`, aunque la ruta no esté verificada) o con la tabla de `src/utils/flightSearch.ts`, luego el callsign tal cual y por último el icao24. Los indicativos tipo matrícula (`N123AB`, aviación general) se quedan como están, igual que en FlightRadar24. La etiqueta sigue al avión y desaparece al cerrar el panel. Es un único `L.tooltip` ligado al marcador seleccionado y tiene `aria-hidden`, porque el panel ya muestra el dato.
+- Etiqueta del vuelo, al estilo FlightRadar24: el avión seleccionado muestra encima una píldora azul con su número de vuelo. Igual que la cabecera del panel, muestra el número comercial (`WN590`) y no el indicativo ICAO (`SWA590`). Orden: el `flightNumber` de `/schedule`, el de la ruta, la conversión del callsign con la aerolínea de adsbdb (`route.airline`, aunque la ruta no esté verificada) o con la tabla de `src/utils/flightSearch.ts`, luego el callsign tal cual y por último el icao24. Los indicativos tipo matrícula (`N123AB`, aviación general) se quedan como están, igual que en FlightRadar24. La etiqueta sigue al avión y desaparece al cerrar el panel. Es un único marcador de MapLibre aparte que sigue al avión seleccionado, siempre de pie aunque el mapa esté inclinado, y tiene `aria-hidden`, porque el panel ya muestra el dato.
 - Icono según el modelo, al estilo FlightRadar24: con el campo `type` (tipo ICAO, como `B738`), `familyOf` en `src/utils/aircraftFamily.ts` elige una de 20 familias de silueta. Primero busca en una tabla de tipos exactos y después por prefijo; sin tipo, o con un tipo que no reconoce, usa `generic`. Las siluetas son dibujos propios en SVG vistos desde arriba, que respetan la relación entre envergadura y largo, la posición del ala y de los motores y el número de motores. No están copiadas de tar1090 ni de dump1090-fa (GPL) ni de FlightRadar24.
 
   | Familia | Tipos de ejemplo | Medida mayor | Icono |

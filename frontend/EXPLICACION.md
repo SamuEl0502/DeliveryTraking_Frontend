@@ -8,7 +8,7 @@
 | `package.json` | Lista dependencias y scripts (`npm run dev`, `npm run build`, `npm run typecheck`). |
 | `vite.config.ts` | Configura Vite (servidor de desarrollo y empaquetador) con el plugin de Vue. |
 | `tsconfig.json` | TypeScript en modo estricto (`strict`, `noUncheckedIndexedAccess`, etc.). |
-| `.env.example` | Muestra la variable `VITE_API_URL` (URL del backend) sin secretos. |
+| `.env.example` | Muestra las variables `VITE_API_URL` (URL del backend) y `VITE_PROTOMAPS_KEY` (mapa base) sin valores reales. |
 | `src/vite-env.d.ts` | Le dice a TypeScript qué variables de entorno existen. |
 | `src/main.ts` | Punto de entrada: crea la app, conecta Pinia y el router, carga CSS y monta en `#app`. |
 | `src/App.vue` | Componente raíz; solo muestra la vista actual con `<RouterView />`. |
@@ -19,7 +19,7 @@
 | `src/composables/usePolling.ts` | Repite una tarea cada 10 s y se pausa cuando la pestaña está oculta. |
 | `src/composables/useSmoothedPosition.ts` | Suavizado (Bloque 4): extrapola la posición con velocidad y rumbo y corrige con lerp en 1 s, en un solo bucle `requestAnimationFrame`. |
 | `src/views/MapView.vue` | Pantalla principal: une mapa, resumen, carga, banner de error y panel; arranca el polling. |
-| `src/components/AircraftMap.vue` | Mapa Leaflet: dibuja solo aviones en el aire y visibles (máx. 400) y reutiliza marcadores. |
+| `src/components/AircraftMap.vue` | Mapa MapLibre GL en 3D (globo, inclinación, edificios): dibuja solo aviones en el aire y visibles (máx. 400) y reutiliza marcadores. |
 | `src/components/AircraftPanel.vue` | Panel del avión seguido: callsign, velocidad, altitud, aire/tierra y hora. Lateral en escritorio, hoja inferior en móvil. |
 | `src/assets/main.css` | Colores (variables), tarjeta `.sheet` estilo Flighty, estilos de los marcadores y altura `100dvh`. |
 

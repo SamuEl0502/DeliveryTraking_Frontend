@@ -1,5 +1,7 @@
 <script setup lang="ts">
 import * as L from 'leaflet';
+import { maplibreGL } from '@maplibre/maplibre-gl-leaflet';
+import { OSM_ATTRIBUTION, OSM_TILES, PROTOMAPS_STYLE } from '../utils/basemap';
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue';
 import type { LivePosition } from '../types/tracking';
 
@@ -39,10 +41,9 @@ function createMap(el: HTMLDivElement): void {
   // Sin zoom con la rueda: la página hace scroll y el mapa lo estorbaría
   map = L.map(el, { zoomControl: false, scrollWheelZoom: false });
   L.control.zoom({ position: 'bottomleft' }).addTo(map);
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 18,
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-  }).addTo(map);
+  // Fondo de Protomaps (2D: este mapa es pequeño y no necesita inclinarse); sin llave, OpenStreetMap
+  if (PROTOMAPS_STYLE) maplibreGL({ style: PROTOMAPS_STYLE }).addTo(map);
+  else L.tileLayer(OSM_TILES, { maxZoom: 18, attribution: OSM_ATTRIBUTION }).addTo(map);
   routeLayer = L.layerGroup().addTo(map);
 }
 

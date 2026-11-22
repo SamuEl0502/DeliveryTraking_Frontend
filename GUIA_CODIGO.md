@@ -20,7 +20,7 @@ y, si haces clic en un avión, `-> components/AircraftPanel.vue`.
   - `build` → `vue-tsc -b && vite build`: primero revisa tipos y, si pasan, genera la versión de producción en `dist/`.
   - `preview` → `vite preview`: sirve localmente lo que quedó en `dist/`.
   - `typecheck` → `vue-tsc -b`: solo revisa tipos (también dentro de los `.vue`). Deja un archivo de caché `tsconfig.tsbuildinfo`, ignorado por Git.
-- `dependencies` (van al navegador): `vue` (interfaz), `vue-router` (rutas), `pinia` (estado global), `axios` (peticiones HTTP), `leaflet` (mapa).
+- `dependencies` (van al navegador): `vue` (interfaz), `vue-router` (rutas), `pinia` (estado global), `axios` (peticiones HTTP), `leaflet` (mapa), `maplibre-gl` (mapa de aviones en 3D y mapa base vectorial de Protomaps) y `@maplibre/maplibre-gl-leaflet` (pone ese mapa base debajo del mapa del envío, que sigue en Leaflet).
 - `devDependencies` (solo para desarrollar): `vite` y `@vitejs/plugin-vue` (servidor/empaquetador), `typescript` fijado en `~5.9.3` (la versión 7 no funciona con `vue-tsc`), `vue-tsc` (TypeScript para `.vue`), `@vue/tsconfig` (configuración base recomendada), `@types/leaflet` (tipos de Leaflet).
 
 ### `frontend/tsconfig.json`
@@ -42,6 +42,7 @@ y, si haces clic en un avión, `-> components/AircraftPanel.vue`.
 
 ### `frontend/.env.example`
 **Para qué existe:** plantilla de variables de entorno, sin secretos. Se copia a `frontend/.env`.
+- `VITE_PROTOMAPS_KEY`: llave del mapa base de Protomaps; vacía = tiles de OpenStreetMap.
 - `VITE_API_URL`: URL base del backend. Vite solo expone al navegador las variables que empiezan por `VITE_`.
 
 ### `.gitignore` (raíz)
@@ -71,7 +72,7 @@ y, si haces clic en un avión, `-> components/AircraftPanel.vue`.
 
 - No define funciones. Una sola línea encadenada:
   `createApp(App)` crea la app → `.use(createPinia())` activa las tiendas → `.use(router)` activa las rutas → `.mount('#app')` la dibuja en el `<div id="app">`.
-- Importa también `leaflet/dist/leaflet.css` (estilos que Leaflet necesita para dibujar bien el mapa) y `assets/main.css` (estilos globales).
+- Importa también `leaflet/dist/leaflet.css` y `maplibre-gl/dist/maplibre-gl.css` (estilos que Leaflet y MapLibre necesitan para dibujar bien el mapa) y `assets/main.css` (estilos globales).
 
 ### `frontend/src/App.vue`
 **Para qué existe:** componente raíz.
@@ -148,7 +149,7 @@ y, si haces clic en un avión, `-> components/AircraftPanel.vue`.
 
 ### `frontend/src/composables/useSmoothedPosition.ts`
 **Para qué existe:** que los aviones se muevan suave entre actualizaciones del backend (cada 30 s por la caché) en vez de saltar.
-**Dónde encaja:** `store -> AircraftMap -> useSmoothedPosition -> marcador de Leaflet` (en cada fotograma).
+**Dónde encaja:** `store -> AircraftMap -> useSmoothedPosition -> marcador de MapLibre` (en cada fotograma).
 
 **Constantes:** `SIGNAL_LOST_S = 120` (2 min sin datos = señal perdida; exportada), `CORRECTION_MS = 1000` (duración de la corrección), `EARTH_RADIUS_M = 6 371 000` (radio de la Tierra), `DEG` (factor radianes ↔ grados).
 
@@ -190,7 +191,7 @@ y, si haces clic en un avión, `-> components/AircraftPanel.vue`.
 
 ### `frontend/src/components/AircraftMap.vue`
 **Para qué existe:** dibujar el mapa y mantener sincronizados los marcadores con el store, con buen rendimiento.
-**Dónde encaja:** `store -> AircraftMap -> Leaflet`; también `clic en marcador -> store.select()`.
+**Dónde encaja:** `store -> AircraftMap -> MapLibre GL`; también `clic en marcador -> store.select()`.
 
 - **Componente `AircraftMap`**: no recibe props. Emite `rendered(count)` con cuántos aviones dibujó (lo escucha `MapView`).
 - **Constantes:** `MAX_MARKERS = 400` (tope de marcadores), `MAX_ANIMATED = 60` (tope de animados, además del seguido), `STALE_CHECK_MS = 5000` (cada cuánto se revisa la señal perdida), `US_CENTER` (centro inicial del mapa).
@@ -207,7 +208,7 @@ y, si haces clic en un avión, `-> components/AircraftPanel.vue`.
   3. Quita los marcadores que ya no están en la lista (y los saca de la animación).
   4. Emite `rendered`.
   La llaman: al montar, el evento `moveend` del mapa (mover o hacer zoom), los `watch` de `store.byIcao` y `store.selectedIcao24`, y el temporizador de 5 s.
-- **`onMounted`**: crea el mapa centrado en EE. UU. (zoom 4), el control de zoom abajo a la izquierda, los tiles de OpenStreetMap y el grupo de marcadores; registra `moveend`, el clic en zona vacía (→ `store.clearSelection()`) y el temporizador; hace el primer `render()`.
+- **`onMounted`**: crea el mapa centrado en EE. UU. (zoom 4), el mapa de MapLibre GL con el estilo de `utils/basemap.ts` (Protomaps, u OpenStreetMap sin llave), y el zoom con brújula abajo a la izquierda. Al cargar el estilo, `setup3d` pone el globo terráqueo, los edificios en 3D (desde zoom 14, con la altura que trae Protomaps) y la capa de la estela. Los aviones son marcadores HTML (`createMarker`) que se giran según su rumbo menos el giro del mapa; registra `moveend`, el clic en zona vacía (→ `store.clearSelection()`) y el temporizador; hace el primer `render()`.
 - **`onUnmounted`**: detiene el temporizador y destruye el mapa (`map.remove()`).
 
 ### `frontend/src/components/AircraftPanel.vue`
@@ -234,7 +235,8 @@ y, si haces clic en un avión, `-> components/AircraftPanel.vue`.
 - `html, body` con `overflow: hidden` y `#app` con `height: 100dvh`: el mapa ocupa toda la pantalla sin scroll.
 - `.sheet`: la tarjeta blanca de esquinas grandes (estilo Flighty) usada en resumen, banner y panel.
 - `.plane-marker` y variantes `.is-selected`, `.is-ground`, `.is-stale`: aspecto de los aviones. Son globales porque Leaflet crea esos elementos fuera de los componentes de Vue.
-- `.leaflet-bar a`: botones de zoom de 44 px.
+- `.maplibregl-ctrl-group button` (mapa de aviones) y `.leaflet-bar a` (mapa del envío): botones de zoom de 44 px.
+- `.flight-label` y `.airport-marker`: número de vuelo del avión seguido y aeropuertos de su ruta en el mapa de aviones.
 
 ---
 
@@ -269,7 +271,7 @@ y, si haces clic en un avión, `-> components/AircraftPanel.vue`.
 | **Composable** | Función reutilizable (`useAlgo`) que agrupa lógica con estado y ciclo de vida de Vue. |
 | **Axios / interceptor** | Librería para peticiones HTTP / función que se ejecuta en cada respuesta para tratarla de forma común. |
 | **Polling** | Pedir datos al servidor cada cierto tiempo (aquí, 10 s). |
-| **Leaflet / tiles** | Librería de mapas / imágenes cuadradas del mapa (aquí, de OpenStreetMap). |
+| **Leaflet / tiles** | Librería de mapas / trozos cuadrados del mapa. Aquí son tiles vectoriales de Protomaps que dibuja MapLibre GL (o imágenes de OpenStreetMap si no hay llave). |
 | **Extrapolación** | Estimar la posición actual a partir de la última, la velocidad y el rumbo. |
 | **Lerp** | Interpolación lineal: punto intermedio entre A y B según un valor `t` de 0 a 1. |
 | **`requestAnimationFrame`** | Pide al navegador ejecutar una función antes del próximo fotograma (~60 por segundo). |
@@ -283,6 +285,8 @@ y, si haces clic en un avión, `-> components/AircraftPanel.vue`.
 |---|---|---|
 | Cambiar cada cuánto se piden los aviones | `src/views/MapView.vue` | `POLL_INTERVAL_MS` (y el texto "Se reintenta cada 10 s" del banner). |
 | Cambiar la URL del backend | `frontend/.env` (desde `.env.example`) | `VITE_API_URL`. |
+| Cambiar la llave o el estilo del mapa base | `frontend/.env` y `utils/basemap.ts` | `VITE_PROTOMAPS_KEY`; la URL del estilo (`light/en`). |
+| Cambiar los edificios 3D o el globo | `AircraftMap.vue` (`setup3d`) | Zoom mínimo, color y altura por defecto de `buildings-3d`; `setProjection`. |
 | Cambiar el tiempo de espera de las peticiones | `src/services/api.ts` | `timeout: 8000`. |
 | Cambiar los mensajes de error | `src/services/api.ts` | Textos dentro del interceptor. |
 | Validar un parámetro de ruta | En este repo no hay rutas con parámetros. En el backend se hace con Zod (otro repo). En el frontend iría en `src/router/index.ts` (ruta con `:icao24` y un guard `beforeEnter`). *Por confirmar con el equipo.* |

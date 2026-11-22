@@ -47,9 +47,11 @@ body {
   box-shadow: var(--shadow);
 }
 
-/* Marcadores de Leaflet: viven fuera de los componentes, por eso son estilos globales */
+/* Marcadores de MapLibre y Leaflet: viven fuera de los componentes, por eso son estilos globales */
 /* El marcador mide 40x40 (área de toque cómoda); el avión dibujado va de 14 a 36 px según su envergadura */
 .plane-marker {
+  width: 40px;
+  height: 40px;
   background: none;
   border: 0;
   display: flex;
@@ -73,6 +75,11 @@ body {
   stroke-width: 1.2;
   paint-order: stroke;
   cursor: pointer;
+}
+/* Mapa de aviones: sombra en el suelo, más separada cuanto más alto vuela (--lift lo pone el mapa).
+   Va en el marcador, que gira con el mapa: la sombra cae siempre hacia el mismo lado del terreno */
+.maplibregl-marker.plane-marker {
+  filter: drop-shadow(var(--lift, 2px) var(--lift, 2px) 1.5px rgba(0, 0, 0, 0.3));
 }
 .plane-marker .rotor {
   fill-opacity: 0.35;
@@ -101,7 +108,56 @@ body {
   font-family: inherit;
 }
 
-/* Botones de zoom de 44 px para dedos */
+/* Mapa de aviones (MapLibre): zoom y brújula de 44 px para dedos */
+.maplibregl-map {
+  font-family: inherit;
+}
+.maplibregl-ctrl-group {
+  border-radius: 14px !important;
+  overflow: hidden;
+  box-shadow: var(--shadow) !important;
+}
+.maplibregl-ctrl-group button {
+  width: 44px;
+  height: 44px;
+}
+
+/* Número de vuelo encima del avión seguido (estilo FlightRadar24); marcador propio, siempre de pie */
+.maplibregl-marker.flight-label {
+  z-index: 10001; /* sobre el avión seleccionado */
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--plane-selected);
+  color: #fff;
+  font: 700 12px ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  white-space: nowrap;
+  box-shadow: var(--shadow);
+  pointer-events: none;
+}
+
+/* Aeropuertos de la ruta en el mapa de aviones: punto azul con su código encima */
+.airport-marker {
+  width: 12px;
+  height: 12px;
+  border: 2px solid #fff;
+  border-radius: 50%;
+  background: var(--plane-selected);
+  pointer-events: none;
+}
+.airport-marker .airport-label {
+  position: absolute;
+  bottom: calc(100% + 4px);
+  left: 50%;
+  transform: translateX(-50%);
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--surface);
+  box-shadow: var(--shadow);
+  font: 700 11px ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+  white-space: nowrap;
+}
+
+/* Mapa del envío (Leaflet): botones de zoom de 44 px para dedos */
 .leaflet-touch .leaflet-bar a,
 .leaflet-bar a {
   width: 44px;

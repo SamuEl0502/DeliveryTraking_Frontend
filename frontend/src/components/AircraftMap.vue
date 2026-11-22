@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import * as L from 'leaflet';
+import { type GeoJSONSource, Map as MapLibreMap, Marker, NavigationControl } from 'maplibre-gl';
 import { onMounted, onUnmounted, ref, watch } from 'vue';
 import { extrapolate, isSignalLost, useSmoothedPosition } from '../composables/useSmoothedPosition';
 import { useAircraftStore } from '../store/aircraft';
@@ -7,25 +7,32 @@ import { fetchAircraftTrack } from '../services/api';
 import type { AircraftState, TrackPoint } from '../types/aircraft';
 import { type AircraftFamily, familyOf, sizePx } from '../utils/aircraftFamily';
 import { ALT_BANDS, altColor } from '../utils/altitude';
+import { OSM_STYLE, PROTOMAPS_STYLE } from '../utils/basemap';
 
 const MAX_MARKERS = 400;
 const MAX_ANIMATED = 60; // además del avión seguido
 const STALE_CHECK_MS = 5000;
-const US_CENTER: L.LatLngTuple = [39.5, -98.35];
+const US_CENTER: [lng: number, lat: number] = [-98.35, 39.5];
+// Los tiles de MapLibre miden 512 px: su zoom 3.3 equivale al zoom 4 que tenía Leaflet
+const START_ZOOM = 3.3;
+const FOCUS_ZOOM = 7;
 
 const emit = defineEmits<{ rendered: [count: number] }>();
 
 const store = useAircraftStore();
 const mapEl = ref<HTMLDivElement | null>(null);
 
-// Instancias de Leaflet fuera de la reactividad de Vue (no necesitan proxies y serían más lentas)
-let map: L.Map | null = null;
-let layer: L.LayerGroup | null = null;
+// Instancias de MapLibre fuera de la reactividad de Vue (no necesitan proxies y serían más lentas)
+let map: MapLibreMap | null = null;
+let styleReady = false; // hasta que carga el estilo no se pueden añadir fuentes ni capas
 let staleTimer: ReturnType<typeof setInterval> | null = null;
-const markers = new Map<string, L.Marker>();
+const markers = new Map<string, Marker>();
 
 // Cada fotograma, el composable entrega la posición suavizada y aquí se mueve el marcador
-const smooth = useSmoothedPosition((id, pos) => markers.get(id)?.setLatLng([pos.lat, pos.lng]));
+const smooth = useSmoothedPosition((id, pos) => {
+  markers.get(id)?.setLngLat([pos.lng, pos.lat]);
+  if (id === store.selectedIcao24) labelMarker?.setLngLat([pos.lng, pos.lat]);
+});
 
 // Siluetas propias vistas desde arriba, con la nariz al norte, en un viewBox de 24 (no copiadas de
 // tar1090, dump1090-fa ni FlightRadar24). Proporciones de envergadura y largo reales; se rotan con CSS según el rumbo.
@@ -104,40 +111,65 @@ const SHAPES: Record<AircraftFamily, string> = {
 
 const ROTOR = '<circle class="rotor" cx="12" cy="8.6" r="8.2"/>';
 
-// Un divIcon por familia y tamaño, creado la primera vez que hace falta: los 400 marcadores comparten
-// unas decenas. El tamaño va en --size; los estados son clases CSS
-const icons = new Map<string, L.DivIcon>();
-function iconFor(a: AircraftState): L.DivIcon {
+/** Familia y tamaño del icono: si cambian (llegó el tipo), se rehace el SVG del marcador */
+function iconKey(a: AircraftState): string {
   const family = familyOf(a.type);
-  const px = sizePx(a.type, family);
-  const key = `${family}-${px}`;
-  let icon = icons.get(key);
-  if (!icon) {
-    icon = L.divIcon({
-      className: 'plane-marker',
-      html: `<div class="plane" style="--size:${px}px"><svg viewBox="0 0 24 24" aria-hidden="true">${family === 'heli' ? ROTOR : ''}<path d="${SHAPES[family]}"/></svg></div>`,
-      iconSize: [40, 40], // área de toque; el avión visible puede ser más pequeño o más grande
-      iconAnchor: [20, 20],
-    });
-    icons.set(key, icon);
-  }
-  return icon;
+  return `${family}-${sizePx(a.type, family)}`;
 }
 
-function applyState(marker: L.Marker, a: AircraftState, isSelected: boolean, lost: boolean): void {
+function planeHtml(a: AircraftState): string {
+  const family = familyOf(a.type);
+  return `<div class="plane" style="--size:${sizePx(a.type, family)}px"><svg viewBox="0 0 24 24" aria-hidden="true">${family === 'heli' ? ROTOR : ''}<path d="${SHAPES[family]}"/></svg></div>`;
+}
+
+/** Marcador HTML de 40x40 (área de toque); el avión dibujado puede ser más pequeño o más grande */
+function createMarker(id: string, a: AircraftState, now: number): Marker {
+  const el = document.createElement('div');
+  el.className = 'plane-marker';
+  el.dataset.icon = iconKey(a);
+  el.innerHTML = planeHtml(a);
+  el.addEventListener('click', (e) => {
+    e.stopPropagation(); // si no, el clic llega al mapa y deselecciona
+    store.select(id);
+  });
+  const start = extrapolate(a, now);
+  // Acostado sobre el mapa: se inclina y gira con él, como una sombra del avión en el suelo
+  return new Marker({ element: el, rotationAlignment: 'map', pitchAlignment: 'map' })
+    .setLngLat([start.lng, start.lat])
+    .addTo(map!);
+}
+
+/** Rumbo respecto al norte del mapa: el giro del mapa ya lo aplica MapLibre al marcador */
+function orient(marker: Marker, hdg: number | null): void {
+  const plane = marker.getElement().firstElementChild;
+  if (plane instanceof HTMLElement) plane.style.transform = `rotate(${hdg ?? 0}deg)`;
+}
+
+/** Separación de la sombra (px) según la altitud: de 1 px en tierra a 8 px a 12 000 m o más */
+function lift(a: AircraftState): number {
+  return a.onGround ? 1 : 2 + Math.round(Math.min(Math.max(a.alt ?? 0, 0), 12000) / 2000);
+}
+
+function applyState(marker: Marker, a: AircraftState, isSelected: boolean, lost: boolean): void {
   const el = marker.getElement();
-  if (!el) return;
-  const plane = el.firstElementChild;
-  if (plane instanceof HTMLElement) plane.style.transform = `rotate(${a.hdg ?? 0}deg)`;
+  const key = iconKey(a);
+  if (el.dataset.icon !== key) {
+    el.dataset.icon = key; // el tipo llegó o cambió de familia: raro, solo entonces se rehace el SVG
+    el.innerHTML = planeHtml(a);
+  }
+  orient(marker, a.hdg);
+  el.style.setProperty('--lift', `${lift(a)}px`);
   el.classList.toggle('is-selected', isSelected);
   el.classList.toggle('is-ground', a.onGround);
   el.classList.toggle('is-stale', lost);
 }
 
-// Estela y aeropuertos del avión seguido. Las líneas van en overlayPane, debajo de los marcadores
+// Estela y aeropuertos del avión seguido. La estela es una capa del mapa, debajo de los marcadores HTML
 const TRACK_REFRESH_MS = 60_000;
 const LIVE_MAX = 500;
-let overlay: L.LayerGroup | null = null;
+const TRAIL_SOURCE = 'trail';
+let airportMarkers: Marker[] = [];
+let drawnRoute: unknown = null;
 // Estela = recorrido de OpenSky desde el despegue (/track) + posiciones reales del polling.
 // Solo posiciones reales con su ts: la suavizada haría zigzags al corregirse
 let track: TrackPoint[] = [];
@@ -174,12 +206,18 @@ function startTrack(icao24: string): void {
   trackTimer = setInterval(load, TRACK_REFRESH_MS);
 }
 
+type TrailFeature = GeoJSON.Feature<GeoJSON.LineString | GeoJSON.Point, { color: string; width: number }>;
+
 function drawOverlay(): void {
-  if (!overlay) return;
-  overlay.clearLayers();
+  const source = styleReady ? map?.getSource<GeoJSONSource>(TRAIL_SOURCE) : undefined;
+  if (!source) return;
+  drawAirports();
   const a = store.selected;
-  const pos = a ? markers.get(a.icao24)?.getLatLng() : undefined;
-  if (!a || !pos) return;
+  const pos = a ? markers.get(a.icao24)?.getLngLat() : undefined;
+  if (!a || !pos) {
+    source.setData({ type: 'FeatureCollection', features: [] });
+    return;
+  }
 
   // Punto real nuevo solo cuando cambia ts
   const lastTs = (live.at(-1) ?? track.at(-1))?.ts ?? 0;
@@ -191,50 +229,67 @@ function drawOverlay(): void {
   // Segmentos coloreados por la altitud de cada punto, agrupados en rachas del mismo color
   const path = [...track, ...live];
   const colorOf = (p: TrackPoint) => altColor(p.alt, p.onGround) ?? '#1f6feb'; // sin altitud: azul de selección
+  const line = (coords: [number, number][], color: string, width: number): TrailFeature => ({
+    type: 'Feature',
+    geometry: { type: 'LineString', coordinates: coords },
+    properties: { color, width },
+  });
+  const features: TrailFeature[] = [];
   let start = 0;
   for (let i = 1; i <= path.length; i++) {
     if (i === path.length || colorOf(path[i]!) !== colorOf(path[start]!)) {
-      const pts = path.slice(start, Math.min(i + 1, path.length)).map((p) => [p.lat, p.lng] as L.LatLngTuple);
-      if (pts.length > 1) L.polyline(pts, { color: colorOf(path[start]!), weight: 3, interactive: false }).addTo(overlay);
+      const pts = path.slice(start, Math.min(i + 1, path.length)).map((p): [number, number] => [p.lng, p.lat]);
+      if (pts.length > 1) features.push(line(pts, colorOf(path[start]!), 3));
       start = i;
     }
   }
   for (const p of path) {
-    L.circleMarker([p.lat, p.lng], { radius: 2, stroke: false, fillColor: colorOf(p), fillOpacity: 1, interactive: false }).addTo(
-      overlay,
-    );
+    features.push({ type: 'Feature', geometry: { type: 'Point', coordinates: [p.lng, p.lat] }, properties: { color: colorOf(p), width: 0 } });
   }
   // Del último punto real al icono suavizado: línea fina, no se guarda
   const last = path.at(-1);
-  if (last) L.polyline([[last.lat, last.lng], pos], { color: colorOf(last), weight: 1.5, interactive: false }).addTo(overlay);
+  if (last) features.push(line([[last.lng, last.lat], [pos.lng, pos.lat]], colorOf(last), 1.5));
+  source.setData({ type: 'FeatureCollection', features });
+}
 
-  const route = store.selectedRoute;
-  if (!route) return;
+/** Aeropuertos de la ruta del avión seguido: marcadores HTML con su código; solo se rehacen si cambia la ruta */
+function drawAirports(): void {
+  const route = store.selected ? store.selectedRoute : null;
+  if (route === drawnRoute) return;
+  drawnRoute = route;
+  for (const m of airportMarkers) m.remove();
+  airportMarkers = [];
+  if (!route || !map) return;
   for (const ap of route.destination ? [route.origin, route.destination] : [route.origin]) {
-    L.circleMarker([ap.lat, ap.lng], { radius: 5, className: 'route-airport' })
-      .bindTooltip(ap.iata ?? ap.icao, { direction: 'top', className: 'airport-label' })
-      .addTo(overlay);
+    const el = document.createElement('div');
+    el.className = 'airport-marker';
+    el.setAttribute('aria-hidden', 'true'); // el panel ya muestra la ruta
+    const code = document.createElement('span');
+    code.className = 'airport-label';
+    code.textContent = ap.iata ?? ap.icao;
+    el.append(code);
+    airportMarkers.push(new Marker({ element: el }).setLngLat([ap.lng, ap.lat]).addTo(map));
   }
 }
 
-// Una sola etiqueta con el número de vuelo, ligada al marcador seguido (estilo FlightRadar24)
-const label = L.tooltip({ permanent: true, direction: 'top', className: 'flight-label', offset: [0, -14] });
-let labelOn: L.Marker | null = null;
+// Una sola etiqueta con el número de vuelo sobre el avión seguido (estilo FlightRadar24).
+// Es un marcador aparte para que quede de pie y legible aunque el mapa esté inclinado
+const label = document.createElement('span');
+label.className = 'flight-label';
+label.setAttribute('aria-hidden', 'true'); // decorativa: el panel ya lo dice
+let labelMarker: Marker | null = null;
 
 function syncLabel(): void {
   const marker = store.selectedIcao24 ? markers.get(store.selectedIcao24) : undefined;
   const text = marker ? store.selectedLabel : null;
-  if (labelOn && (labelOn !== marker || !text)) {
-    labelOn.unbindTooltip();
-    labelOn = null;
+  if (!marker || !text || !map) {
+    labelMarker?.remove();
+    labelMarker = null;
+    return;
   }
-  if (!marker || !text) return;
-  label.setContent(text);
-  if (labelOn !== marker) {
-    marker.bindTooltip(label).openTooltip();
-    labelOn = marker;
-  }
-  label.getElement()?.setAttribute('aria-hidden', 'true'); // decorativa: el panel ya lo dice
+  label.textContent = text;
+  if (!labelMarker) labelMarker = new Marker({ element: label, anchor: 'bottom', offset: [0, -16] }).setLngLat(marker.getLngLat()).addTo(map);
+  else labelMarker.setLngLat(marker.getLngLat());
 }
 
 /** Solo vale la pena animar lo que se mueve y tiene señal reciente */
@@ -244,9 +299,9 @@ function canAnimate(a: AircraftState, now: number): boolean {
 
 /** Elige qué aviones dibujar y sincroniza los marcadores (crea, mueve o quita) */
 function render(): void {
-  if (!map || !layer) return;
+  if (!map) return;
   const now = Date.now();
-  const bounds = map.getBounds().pad(0.05);
+  const bounds = map.getBounds();
   const selectedId = store.selectedIcao24;
 
   const visible: AircraftState[] = [];
@@ -254,7 +309,7 @@ function render(): void {
   if (store.selected) visible.push(store.selected);
   for (const a of store.airborne) {
     if (visible.length >= MAX_MARKERS) break;
-    if (a.icao24 !== selectedId && bounds.contains([a.lat, a.lng])) visible.push(a);
+    if (a.icao24 !== selectedId && bounds.contains([a.lng, a.lat])) visible.push(a);
   }
 
   const keep = new Set<string>();
@@ -265,32 +320,26 @@ function render(): void {
     keep.add(id);
 
     let marker = markers.get(id);
-    const icon = iconFor(a);
     if (!marker) {
-      const start = extrapolate(a, now);
-      marker = L.marker([start.lat, start.lng], { icon, keyboard: false });
-      marker.on('click', () => store.select(id));
-      marker.addTo(layer);
+      marker = createMarker(id, a, now);
       markers.set(id, marker);
-    } else if (marker.options.icon !== icon) {
-      marker.setIcon(icon); // el tipo llegó o cambió de familia: raro, solo entonces se rehace el elemento
     }
 
     // El seguido siempre pasa por el composable (así también se suaviza su corrección)
     if (isSelected || (animated < MAX_ANIMATED && canAnimate(a, now))) {
       if (!isSelected) animated += 1;
-      smooth.setState(a, marker.getLatLng());
+      smooth.setState(a, marker.getLngLat());
     } else {
       smooth.remove(id);
       const pos = extrapolate(a, now); // sin animación: un solo cálculo por render
-      marker.setLatLng([pos.lat, pos.lng]);
+      marker.setLngLat([pos.lng, pos.lat]);
     }
     applyState(marker, a, isSelected, isSignalLost(a, now));
   }
 
   for (const [id, marker] of markers) {
     if (!keep.has(id)) {
-      layer.removeLayer(marker);
+      marker.remove();
       markers.delete(id);
       smooth.remove(id);
     }
@@ -301,39 +350,87 @@ function render(): void {
   emit('rendered', visible.length);
 }
 
+/** Globo terráqueo al alejarse, edificios en 3D al acercarse y la capa de la estela */
+function setup3d(): void {
+  if (!map) return;
+  map.setProjection({ type: 'globe' });
+  // Los edificios de Protomaps traen su altura en metros; sin dato, una altura baja
+  if (map.getSource('protomaps')) {
+    const firstLabel = map.getStyle().layers.find((l) => l.type === 'symbol')?.id;
+    map.addLayer(
+      {
+        id: 'buildings-3d',
+        type: 'fill-extrusion',
+        source: 'protomaps',
+        'source-layer': 'buildings',
+        minzoom: 14,
+        filter: ['match', ['get', 'kind'], ['building', 'building_part'], true, false],
+        paint: {
+          'fill-extrusion-color': '#d4d4d8',
+          'fill-extrusion-height': ['coalesce', ['get', 'height'], 8],
+          'fill-extrusion-base': ['coalesce', ['get', 'min_height'], 0],
+          'fill-extrusion-opacity': 0.85,
+        },
+      },
+      firstLabel,
+    );
+  }
+  map.addSource(TRAIL_SOURCE, { type: 'geojson', data: { type: 'FeatureCollection', features: [] } });
+  map.addLayer({
+    id: 'trail-line',
+    type: 'line',
+    source: TRAIL_SOURCE,
+    filter: ['==', ['geometry-type'], 'LineString'],
+    layout: { 'line-cap': 'round', 'line-join': 'round' },
+    paint: { 'line-color': ['get', 'color'], 'line-width': ['get', 'width'] },
+  });
+  map.addLayer({
+    id: 'trail-dots',
+    type: 'circle',
+    source: TRAIL_SOURCE,
+    filter: ['==', ['geometry-type'], 'Point'],
+    paint: { 'circle-radius': 2, 'circle-color': ['get', 'color'] },
+  });
+  styleReady = true;
+  drawOverlay();
+}
+
 onMounted(() => {
   if (!mapEl.value) return;
-  map = L.map(mapEl.value, { zoomControl: false }).setView(US_CENTER, 4);
-  L.control.zoom({ position: 'bottomleft' }).addTo(map);
-  L.tileLayer('https://tile.openstreetmap.org/{z}/{x}/{y}.png', {
-    maxZoom: 18,
-    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
-  }).addTo(map);
-  // Mictronics publica la base de tipos con licencia ODC-By, que exige citar la fuente
-  map.attributionControl.addAttribution(
-    'Tipos de aeronave: <a href="https://www.mictronics.de/aircraft-database/">Mictronics</a>',
-  );
-  overlay = L.layerGroup().addTo(map);
+  map = new MapLibreMap({
+    container: mapEl.value,
+    style: PROTOMAPS_STYLE ?? OSM_STYLE,
+    center: US_CENTER,
+    zoom: START_ZOOM,
+    maxPitch: 70,
+    // Mictronics publica la base de tipos con licencia ODC-By, que exige citar la fuente
+    attributionControl: {
+      compact: false,
+      customAttribution: 'Tipos de aeronave: <a href="https://www.mictronics.de/aircraft-database/">Mictronics</a>',
+    },
+  });
+  // Zoom y brújula: la brújula muestra la inclinación y al pulsarla vuelve el mapa al norte y en plano
+  map.addControl(new NavigationControl({ visualizePitch: true }), 'bottom-left');
+  map.on('style.load', setup3d);
+
   // Iconos más grandes de cerca, para que se note la forma
   const setZoomScale = () => {
     const z = map!.getZoom();
-    mapEl.value?.style.setProperty('--zoom-scale', String(z <= 5 ? 0.85 : z >= 8 ? 1.3 : 1));
+    mapEl.value?.style.setProperty('--zoom-scale', String(z <= 4 ? 0.85 : z >= 7 ? 1.3 : 1));
   };
   map.on('zoomend', setZoomScale);
   setZoomScale();
-  layer = L.layerGroup().addTo(map);
-
-  map.on('moveend', render); // también se dispara al hacer zoom
+  map.on('moveend', render); // también se dispara al hacer zoom, girar o inclinar
   map.on('click', () => store.clearSelection()); // clic en zona vacía deja de seguir
   // La "señal perdida" depende del reloj, no solo de datos nuevos: se revisa cada 5 s
   staleTimer = setInterval(render, STALE_CHECK_MS);
   render();
 });
 
-/** Centra el mapa en un avión (lo usa el buscador); acerca hasta zoom 8 si se está más lejos */
+/** Centra el mapa en un avión (lo usa el buscador); acerca hasta zoom 7 si se está más lejos */
 function focus(a: AircraftState): void {
   const pos = extrapolate(a, Date.now());
-  map?.flyTo([pos.lat, pos.lng], Math.max(map.getZoom(), 8), { duration: 1 });
+  map?.flyTo({ center: [pos.lng, pos.lat], zoom: Math.max(map.getZoom(), FOCUS_ZOOM), duration: 1000 });
 }
 defineExpose({ focus });
 
@@ -350,11 +447,13 @@ watch(() => store.selectedRoute, drawOverlay);
 onUnmounted(() => {
   if (staleTimer !== null) clearInterval(staleTimer);
   stopTrack();
-  map?.remove();
+  map?.remove(); // también quita los marcadores
   map = null;
-  layer = null;
-  overlay = null;
+  styleReady = false;
   markers.clear();
+  airportMarkers = [];
+  drawnRoute = null;
+  labelMarker = null;
 });
 </script>
 
@@ -371,7 +470,7 @@ onUnmounted(() => {
 </template>
 
 <style scoped>
-/* Leaflet necesita un contenedor con altura explícita */
+/* MapLibre necesita un contenedor con altura explícita */
 .map {
   position: absolute;
   inset: 0;

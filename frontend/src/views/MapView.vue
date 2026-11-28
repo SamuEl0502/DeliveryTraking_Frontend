@@ -8,6 +8,7 @@ import { useAircraftStore } from '../store/aircraft';
 import type { AircraftState } from '../types/aircraft';
 
 const POLL_INTERVAL_MS = 10_000;
+const FLIGHTS_POLL_INTERVAL_MS = 60_000; // los vuelos con envíos cambian poco
 
 const store = useAircraftStore();
 const onScreen = ref(0);
@@ -19,6 +20,7 @@ function followFlight(a: AircraftState): void {
 }
 
 usePolling(store.loadAircraft, POLL_INTERVAL_MS);
+usePolling(store.loadShipmentFlights, FLIGHTS_POLL_INTERVAL_MS);
 
 const num = new Intl.NumberFormat('es');
 const timeFmt = new Intl.DateTimeFormat('es', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
@@ -26,6 +28,15 @@ const updatedAt = computed(() =>
   store.lastUpdated === null ? null : timeFmt.format(store.lastUpdated),
 );
 const firstLoad = computed(() => store.loading && !store.hasData);
+// Con el filtro puesto y sin la primera respuesta todavía no se sabe qué aviones son nuestros
+const firstFlightsLoad = computed(() => store.filterActive && store.shipmentFlights === null);
+const noneOfOurs = computed(
+  () =>
+    store.filterActive &&
+    store.shipmentFlights !== null &&
+    store.hasData &&
+    store.visibleAirborne.length === 0,
+);
 </script>
 
 <template>
@@ -48,6 +59,20 @@ const firstLoad = computed(() => store.loading && !store.hasData);
         <span v-if="updatedAt">Actualizado {{ updatedAt }}</span>
         <span v-else-if="!store.loading">Sin datos todavía</span>
         <span v-else>Cargando…</span>
+      </p>
+      <label class="ours">
+        <input v-model="store.onlyOurs" type="checkbox" />
+        Solo envíos nuestros
+      </label>
+      <p v-if="store.shipmentFlightsError" class="ours-note is-warn" role="status">
+        No se pudieron cargar los envíos: {{ store.shipmentFlightsError }}. Se muestran todos los aviones.
+      </p>
+      <p v-else-if="firstFlightsLoad" class="ours-note" role="status">
+        <span class="spinner" aria-hidden="true" />
+        Cargando envíos…
+      </p>
+      <p v-else-if="noneOfOurs" class="ours-note" role="status">
+        Ningún avión con envíos nuestros está en el aire.
       </p>
       <FlightSearch v-if="store.hasData" @pick="followFlight" />
       <button
@@ -127,6 +152,33 @@ h1 {
   color: var(--green);
   font-weight: 600;
   font-variant-numeric: tabular-nums;
+}
+.ours {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.ours input {
+  width: 18px;
+  height: 18px;
+  margin: 0;
+  accent-color: var(--text);
+  cursor: pointer;
+}
+.ours-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-2);
+}
+.ours-note.is-warn {
+  color: var(--warning);
 }
 .banner {
   display: flex;

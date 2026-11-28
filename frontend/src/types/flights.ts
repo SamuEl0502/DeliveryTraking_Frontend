@@ -47,6 +47,7 @@ export interface FlightListFilters {
   destination?: string; // IATA de 3 letras
   date?: string; // AAAA-MM-DD
   minCapacityKg?: number;
+  withShipments?: boolean; // solo vuelos con al menos un envío
   page?: number;
   limit?: number; // máximo 100
 }

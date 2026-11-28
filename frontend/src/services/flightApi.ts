@@ -20,6 +20,7 @@ function buildParams(filters: FlightListFilters): Record<string, string | number
   if (filters.minCapacityKg !== undefined && !Number.isNaN(filters.minCapacityKg)) {
     params.minCapacityKg = filters.minCapacityKg;
   }
+  if (filters.withShipments) params.withShipments = 'true';
   if (filters.page !== undefined) params.page = filters.page;
   if (filters.limit !== undefined) params.limit = filters.limit;
   return params;

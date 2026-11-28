@@ -62,6 +62,13 @@ export const router = createRouter({
       component: () => import('../views/staff/StaffShipmentsView.vue'),
       meta: { requiresAuth: true, roles: ['STAFF', 'ADMIN'], menu: 'Envíos' },
     },
+    // Staff: asignar envíos a vuelos
+    {
+      path: '/staff/gestion_pedidos',
+      name: 'staff-Management-Shipments',
+      component: () => import('../views/staff/StaffManualShipmentsView.vue'),
+      meta: { requiresAuth: true, roles: ['STAFF', 'ADMIN'], menu: 'Crear envío' },
+    },
     // Las rutas nuevas van antes del comodín
     { path: '/:pathMatch(.*)*', redirect: '/' },
   ],

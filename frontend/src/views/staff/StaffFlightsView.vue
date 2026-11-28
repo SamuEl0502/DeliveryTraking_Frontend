@@ -15,8 +15,8 @@
     <div class="filters">
       <span v-if="staffAirport" class="fixed-origin">
         Origen: {{ staffAirport.iataCode }} · {{ staffAirport.name }}
-      </span>
-      <input v-else v-model="filters.origin" type="text" placeholder="Origen (IATA)" maxlength="3" />
+      </span><input v-else v-model="filters.origin" type="text" placeholder="Origen (IATA)" maxlength="3" />
+      
       <input v-model="filters.destination" type="text" placeholder="Destino (IATA)" maxlength="3" />
       <button @click="applyFilters" :disabled="loading">Filtrar</button>
     </div>

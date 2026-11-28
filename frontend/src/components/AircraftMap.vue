@@ -307,7 +307,7 @@ function render(): void {
   const visible: AircraftState[] = [];
   // El avión seguido va primero y se dibuja siempre, aunque esté en tierra o fuera de la vista
   if (store.selected) visible.push(store.selected);
-  for (const a of store.airborne) {
+  for (const a of store.visibleAirborne) {
     if (visible.length >= MAX_MARKERS) break;
     if (a.icao24 !== selectedId && bounds.contains([a.lng, a.lat])) visible.push(a);
   }
@@ -434,7 +434,8 @@ function focus(a: AircraftState): void {
 }
 defineExpose({ focus });
 
-watch(() => store.byIcao, render);
+// Cambia con cada lote de aviones y también al cambiar el filtro de envíos
+watch(() => store.visibleAirborne, render);
 watch(() => store.selectedIcao24, render);
 watch(
   () => store.selectedIcao24,

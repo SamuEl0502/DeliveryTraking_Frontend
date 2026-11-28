@@ -1,8 +1,13 @@
 import { defineStore } from 'pinia';
-import { computed, ref, shallowRef } from 'vue';
+import { computed, ref, shallowRef, watch } from 'vue';
 import { ApiError, fetchAircraft } from '../services/api';
+import { fetchFlights } from '../services/flightApi';
 import type { AircraftState } from '../types/aircraft';
 import type { Airport } from '../types/flightDetails';
+import type { Flight } from '../types/flights';
+
+const normalizeIcao24 = (value: string) => value.trim().toLowerCase();
+const normalizeCallsign = (value: string) => value.trim().toUpperCase();
 
 export const useAircraftStore = defineStore('aircraft', () => {
   // Normalizado por icao24. shallowRef: Vue no envuelve en proxies los ~4400 objetos,
@@ -25,6 +30,59 @@ export const useAircraftStore = defineStore('aircraft', () => {
     selectedIcao24.value ? (byIcao.value.get(selectedIcao24.value) ?? null) : null,
   );
   const hasData = computed(() => lastUpdated.value !== null);
+
+  // Vuelos con envíos nuestros; null mientras no haya llegado la primera respuesta
+  const shipmentFlights = shallowRef<Flight[] | null>(null);
+  const loadingShipmentFlights = ref(false);
+  const shipmentFlightsError = ref<string | null>(null);
+  const onlyOurs = ref(true); // casilla "Solo envíos nuestros"
+  // Si la carga de vuelos falló no se filtra: se ven todos los aviones
+  const filterActive = computed(() => onlyOurs.value && shipmentFlightsError.value === null);
+
+  // Claves para reconocer un avión nuestro: icao24 o callsign de alguno de esos vuelos
+  const ourKeys = computed(() => {
+    const icao24s = new Set<string>();
+    const callsigns = new Set<string>();
+    for (const f of shipmentFlights.value ?? []) {
+      if (f.aircraftIcao24) icao24s.add(normalizeIcao24(f.aircraftIcao24));
+      const callsign = f.callsign ? normalizeCallsign(f.callsign) : '';
+      if (callsign) callsigns.add(callsign);
+    }
+    return { icao24s, callsigns };
+  });
+
+  function isOurs(a: AircraftState): boolean {
+    const { icao24s, callsigns } = ourKeys.value;
+    if (icao24s.has(normalizeIcao24(a.icao24))) return true;
+    return a.callsign !== null && callsigns.has(normalizeCallsign(a.callsign));
+  }
+
+  // Solo para mostrar (mapa y buscador): byIcao y airborne conservan todos los aviones
+  const visibleAirborne = computed(() =>
+    filterActive.value ? airborne.value.filter(isOurs) : airborne.value,
+  );
+
+  // Si el avión seguido queda oculto por el filtro, se deja de seguir
+  watch(
+    () => filterActive.value && selected.value !== null && !isOurs(selected.value),
+    (hidden) => {
+      if (hidden) clearSelection();
+    },
+  );
+
+  async function loadShipmentFlights(): Promise<void> {
+    if (loadingShipmentFlights.value) return;
+    loadingShipmentFlights.value = true;
+    try {
+      const { flights } = await fetchFlights({ withShipments: true, limit: 100 });
+      shipmentFlights.value = flights;
+      shipmentFlightsError.value = null;
+    } catch (e: unknown) {
+      shipmentFlightsError.value = e instanceof ApiError ? e.message : 'Error inesperado';
+    } finally {
+      loadingShipmentFlights.value = false;
+    }
+  }
 
   async function loadAircraft(): Promise<void> {
     if (loading.value) return; // evita peticiones solapadas
@@ -74,6 +132,13 @@ export const useAircraftStore = defineStore('aircraft', () => {
     airborne,
     selected,
     hasData,
+    shipmentFlights,
+    loadingShipmentFlights,
+    shipmentFlightsError,
+    onlyOurs,
+    filterActive,
+    visibleAirborne,
+    loadShipmentFlights,
     loadAircraft,
     select,
     clearSelection,

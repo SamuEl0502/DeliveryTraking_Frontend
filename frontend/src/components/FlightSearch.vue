@@ -11,8 +11,8 @@ const query = ref('');
 const open = ref(false);
 const active = ref(-1);
 
-// Filtra en el cliente toda la lista de EE. UU. del store: no gasta API
-const results = computed(() => searchFlights(store.airborne, query.value));
+// Filtra en el cliente los aviones visibles del store: no gasta API
+const results = computed(() => searchFlights(store.visibleAirborne, query.value));
 const showList = computed(() => open.value && query.value.trim() !== '');
 watch(query, () => {
   open.value = true;

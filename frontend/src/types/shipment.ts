@@ -42,3 +42,12 @@ export interface ShipmentDetail {
   /** Del más reciente al más antiguo */
   events: ShipmentEvent[];
 }
+
+//Peticion POST para agregar un nuevo envio
+export interface CreateManualShipmentRequest {
+  ownerEmail:string;
+  description:string;
+  weightKg:number;
+  origin?:string;
+  destination:string;
+}
